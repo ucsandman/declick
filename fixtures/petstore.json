@@ -1,0 +1,16 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Petstore", "version": "1.0.0" },
+  "servers": [{ "url": "https://petstore3.swagger.io/api/v3" }],
+  "components": { "securitySchemes": { "api_key": { "type": "apiKey", "in": "header", "name": "api_key" } } },
+  "paths": {
+    "/pet/findByStatus": { "get": { "operationId": "findPetsByStatus", "summary": "Finds Pets by status",
+      "parameters": [{ "name": "status", "in": "query", "schema": { "type": "string" }, "description": "available|pending|sold" }] } },
+    "/pet/{petId}": {
+      "get": { "operationId": "getPetById", "summary": "Find pet by ID", "parameters": [{ "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }], "security": [{ "api_key": [] }] },
+      "delete": { "operationId": "deletePet", "summary": "Deletes a pet", "parameters": [{ "name": "petId", "in": "path", "required": true, "schema": { "type": "integer" } }], "security": [{ "api_key": [] }] }
+    },
+    "/pet": { "post": { "operationId": "addPet", "summary": "Add a new pet to the store",
+      "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "name": { "type": "string" }, "status": { "type": "string" } } } } } } } }
+  }
+}
