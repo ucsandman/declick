@@ -12,18 +12,14 @@ declick wraps or sits beside the engines that already solved one input class eac
 
 ```
 npm i -g declick
-declick add fixtures/petstore.json --name petstore
+declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore
 petstore describe
 petstore get-pet-by-id 7 --dry-run
 ```
 
 `declick add` writes three things: `~/.declick/petstore/manifest.json` (the compiled surface), `~/.declick/bin/petstore.cmd` (a two line launcher, add `~/.declick/bin` to PATH once), and `~/.claude/skills/petstore/SKILL.md` so agents discover it without being told.
 
-Until `~/.declick/bin` is on PATH, run any adapter through the shared runtime:
-
-```
-node bin/run.mjs petstore get-pet-by-id 7 --dry-run
-```
+Until `~/.declick/bin` is on PATH, run any adapter as `node bin/run.mjs petstore get-pet-by-id 7 --dry-run` from a clone.
 
 ## The output contract
 
@@ -54,6 +50,14 @@ calc multiply Three Four
 `declick author <name> --goal "..."` adds a verb to an existing adapter. `declick repair <name> <verb>` runs the same loop seeded with the recipe and the tree diff from the last exit 2, which the runtime writes to `~/.declick/<name>/last-error.json`.
 
 Requires the Claude Code CLI on PATH (`DECLICK_CLAUDE` overrides). The authoring session never receives `ANTHROPIC_API_KEY`.
+
+## declick ui
+
+```
+declick ui --open
+```
+
+One local page at `http://127.0.0.1:4870` (127.0.0.1 only, no auth): every adapter, its engine and verb count, the last run and result, and three buttons per row: build, repair, remove. Repair is enabled when the runtime has recorded an element miss for that adapter. Buttons run the same `declick` commands you would type.
 
 ## Desktop engine
 
@@ -91,8 +95,7 @@ When the app changes, replay does not guess. The missing path exits 2 and prints
 
 ## Roadmap
 
-- Phase 4: mcp and web delegates through mcporter and OpenCLI. Both currently exit 4 with the install line.
-- Phase 5: `declick ui`, a local page listing every adapter with build, repair, and remove buttons, then npm publish and the declick.dev landing page.
+- 0.2: mcp and web delegates through mcporter and OpenCLI. Both currently exit 4 with the install line.
 
 ## Development
 
@@ -101,6 +104,17 @@ npm test
 ```
 
 Zero runtime dependencies, zero dev dependencies. Tests are `node --test`.
+
+From a clean clone:
+
+```
+git clone https://github.com/ucsandman/declick && cd declick
+npm test
+node bin/declick.mjs add fixtures/petstore.json --name petstore
+node bin/run.mjs petstore get-pet-by-id 7 --dry-run
+```
+
+Releases: bump `version` in package.json and add a CHANGELOG entry, then `git tag v0.x.y && git push --tags`. The publish workflow runs the tests and publishes with provenance.
 
 The desktop live tests drive real windows, so they are opt in:
 
