@@ -18,7 +18,7 @@ const USAGE = `declick: turn anything into a CLI so your agents stop clicking
 
 async function build(source, flags) {
   const engine = pickEngine(source);
-  const m = await engines[engine].compile(source, { name: flags.name, goal: flags.goal });
+  const m = await engines[engine].compile(source, { name: flags.name, goal: flags.goal, recipes: flags.recipes });
   const errs = lint(m);
   if (errs.length) throw Object.assign(new Error(`lint failed:\n  ${errs.join('\n  ')}`), { exit: 1 });
   saveManifest(m); writeLauncher(m.name); writeSkill(m);
