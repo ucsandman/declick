@@ -1,0 +1,12 @@
+{
+  "name": "declick",
+  "version": "0.1.0",
+  "description": "Turn anything into a CLI so your agents stop clicking.",
+  "type": "module",
+  "bin": { "declick": "bin/declick.mjs" },
+  "engines": { "node": ">=24" },
+  "scripts": { "test": "node --test test/", "test:live": "node --test test/live/" },
+  "license": "MIT",
+  "repository": "github:ucsandman/declick",
+  "files": ["bin", "src", "fixtures", "README.md"]
+}
