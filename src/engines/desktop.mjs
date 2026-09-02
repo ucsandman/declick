@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { parseSnapshot, findByPath, treeDiff } from './desktop-tree.mjs';
 import { recipesDir, listRecipes } from '../recipes.mjs';
+import { manifestDir } from '../manifest.mjs';
 import { EXIT } from '../output.mjs';
 
 export const DESK = () => process.env.DECLICK_DESK || join(homedir(), '.claude', 'tools', 'deskclaw', 'desk');
@@ -65,8 +66,10 @@ export async function execute(m, verbName, positional, flags = {}) {
       const live = parseSnapshot(r.out);
       const hit = findByPath(live, path);
       if (!hit) {
-        const diff = v.recipe.tree ? treeDiff(v.recipe.tree.map(k => { const i = k.indexOf(':'); return { type: k.slice(0, i), name: k.slice(i + 1) }; }), live) : null;
-        return { ok: false, exit: EXIT.NOT_FOUND, error: `element not found: ${path.join(' > ')} in "${title}"; run: declick repair ${m.name} ${verbName}`, data: diff };
+        const diff = v.recipe.tree ? treeDiff(v.recipe.tree.map(k => { const i = k.indexOf(':'); return { type: k.slice(0, i), name: k.slice(i + 1) }; }), live) : { missing: [], added: [] };
+        const error = `element not found: ${path.join(' > ')} in "${title}"; run: declick repair ${m.name} ${verbName}`;
+        try { mkdirSync(manifestDir(m.name), { recursive: true }); writeFileSync(join(manifestDir(m.name), 'last-error.json'), JSON.stringify({ verb: verbName, error, diff, at: new Date().toISOString() }, null, 2) + '\n'); } catch {}
+        return { ok: false, exit: EXIT.NOT_FOUND, error, data: diff };
       }
       els[step.as] = hit; trace.push({ found: path, ref: hit.ref }); continue;
     }

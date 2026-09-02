@@ -6,6 +6,7 @@ import { join } from 'node:path';
 process.env.DECLICK_HOME = mkdtempSync(join(tmpdir(), 'declick-'));
 process.env.DECLICK_DESK = join(process.cwd(), 'test', 'fake-desk.mjs');
 const { compile, execute } = await import('../src/engines/desktop.mjs');
+const { manifestDir } = await import('../src/manifest.mjs');
 
 const recipes = mkdtempSync(join(tmpdir(), 'recipes-'));
 writeFileSync(join(recipes, 'add.json'), JSON.stringify({
@@ -61,4 +62,12 @@ test('STOP maps to exit 3', async () => {
   process.env.FAKE_DESK_STOP = '1';
   const r = await execute(m, 'add', ['Seven', 'Seven'], {});
   assert.equal(r.exit, 3); delete process.env.FAKE_DESK_STOP;
+});
+test('element miss records last-error.json with the diff', async () => {
+  const m = await compile('app:Calculator', { name: 'calc', recipes });
+  process.env.FAKE_DESK_ARMED = '1';
+  const r = await execute(m, 'add', ['Nine', 'Seven'], {});
+  assert.equal(r.exit, 2);
+  const le = JSON.parse(readFileSync(join(manifestDir('calc'), 'last-error.json'), 'utf8'));
+  assert.equal(le.verb, 'add'); assert.ok(Array.isArray(le.diff.missing)); assert.match(le.error, /Button:Nine/);
 });
