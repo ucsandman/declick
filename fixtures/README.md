@@ -22,4 +22,4 @@ The `tree` array records the `ControlType:Name` keys observed at authoring time.
 
 Control type caveat: the Notepad edit surface is `Document` on some Windows 11 builds and `Edit` on others. The fixture ships the `Document:*` path. If the live test exits 2 here, run `desk snapshot Notepad`, read the real control type off the tree, and change the two `find` paths in the fixture to match. Record the observed value in this file when you do:
 
-- Observed control type: not yet verified on this box (the fixture has not been replayed live).
+- Observed control type: `Document` on Windows 11 Pro 10.0.26200 (live replay 2026-09-02, 3/3 pass, fixture unchanged).
