@@ -5,7 +5,15 @@
   "type": "module",
   "bin": { "declick": "bin/declick.mjs" },
   "engines": { "node": ">=24" },
-  "scripts": { "test": "node --test \"test/*.test.mjs\"", "test:live": "node --test \"test/live/*.test.mjs\"" },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:live": "node --test \"test/live/*.test.mjs\"",
+    "ui": "node bin/declick.mjs ui",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": ["cli", "agents", "automation", "windows", "ui-automation", "openapi", "mcp", "claude-code"],
+  "homepage": "https://declick.dev",
+  "bugs": "https://github.com/ucsandman/declick/issues",
   "license": "MIT",
   "repository": "github:ucsandman/declick",
   "files": ["bin", "src", "fixtures", "README.md"]
