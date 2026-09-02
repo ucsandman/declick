@@ -1,0 +1,4 @@
+{ "description": "Type text into the open Notepad document", "args": [{ "name": "text" }], "mutating": true,
+  "steps": [ { "window": "Notepad" }, { "find": ["Document:*"], "as": "doc" }, { "type": ["doc", "{{text}}"] },
+             { "find": ["Document:*"], "as": "doc2" }, { "read": "doc2", "as": "result" } ],
+  "returns": "result" }

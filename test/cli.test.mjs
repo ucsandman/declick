@@ -42,3 +42,7 @@ test('remove deletes adapter', () => {
   assert.ok(!existsSync(join(home, 'petstore')));
 });
 test('add unknown adapter name exits 2 on describe', () => assert.equal(run(['describe', 'ghost']).status, 2));
+test('add desktop adapter from recipes dir', () => {
+  const r = run(['add', 'app:Calculator', '--name', 'calc', '--recipes', 'fixtures/calculator']);
+  assert.equal(r.status, 0, r.stderr); assert.match(r.stdout, /add <a> <b>/);
+});

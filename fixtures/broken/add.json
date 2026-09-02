@@ -1,0 +1,15 @@
+{
+  "description": "Add two digits and read the display (deliberately broken path)",
+  "args": [{ "name": "a" }, { "name": "b" }],
+  "mutating": true,
+  "steps": [
+    { "window": "Calculator" },
+    { "find": ["Group:Number pad", "Button:{{a}}"], "as": "first" }, { "click": "first" },
+    { "find": ["Group:Standard operators", "Button:Plus Sign"], "as": "plus" }, { "click": "plus" },
+    { "find": ["Group:Number pad", "Button:{{b}}"], "as": "second" }, { "click": "second" },
+    { "find": ["Group:Standard operators", "Button:Equals"], "as": "eq" }, { "click": "eq" },
+    { "find": ["Text:Display is *"], "as": "display" }, { "read": "display", "as": "result" }
+  ],
+  "returns": "result",
+  "tree": ["Group:Number pad", "Button:Seven", "Group:Standard operators", "Button:Plus", "Button:Equals"]
+}
