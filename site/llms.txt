@@ -1,0 +1,9 @@
+# declick
+
+> Turn anything into a CLI so your agents stop clicking. declick compiles an OpenAPI spec or a native Windows app into a command line tool with one guaranteed output contract.
+
+- Source: https://github.com/ucsandman/declick
+- Package: https://www.npmjs.com/package/declick
+- Install: npm i -g declick
+- Contract: describe under 500 tokens, --json, --fields, --limit, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw when configured, auth by env key name, generated SKILL.md per adapter
+- Engines: openapi (built in), desktop (native Windows via deskclaw UI Automation, deterministic recipe replay, authoring and repair through a bounded Claude Code session), mcp and web (next)
