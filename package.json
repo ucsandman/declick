@@ -5,7 +5,7 @@
   "type": "module",
   "bin": { "declick": "bin/declick.mjs" },
   "engines": { "node": ">=24" },
-  "scripts": { "test": "node --test test/", "test:live": "node --test test/live/" },
+  "scripts": { "test": "node --test \"test/*.test.mjs\"", "test:live": "node --test \"test/live/*.test.mjs\"" },
   "license": "MIT",
   "repository": "github:ucsandman/declick",
   "files": ["bin", "src", "fixtures", "README.md"]
