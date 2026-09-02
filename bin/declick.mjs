@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { loadManifest, saveManifest, listManifests, manifestDir } from '../src/manifest.mjs';
 import { describe } from '../src/describe.mjs';
@@ -10,6 +11,7 @@ import { writeLauncher } from '../src/launcher.mjs';
 import { writeSkill } from '../src/skill.mjs';
 import { importRecipes, loadRecipe } from '../src/recipes.mjs';
 import { author } from '../src/author.mjs';
+import { startUi } from '../src/ui.mjs';
 
 const USAGE = `declick: turn anything into a CLI so your agents stop clicking
   declick add <source> [--name n] [--goal "..."] [--verb v]   source: spec.json | https://... | app:<window title> | mcp:<server>
@@ -19,7 +21,8 @@ const USAGE = `declick: turn anything into a CLI so your agents stop clicking
   declick describe <name> [--full]
   declick lint <name>
   declick list
-  declick remove <name>`;
+  declick remove <name>
+  declick ui [--port N] [--open]   local page: every adapter, last run, build / repair / remove buttons`;
 
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').split('-').slice(0, 4).join('-');
 const adapterName = (source, flags) => flags.name || slug(source.replace(/^app:/, ''));
@@ -74,6 +77,14 @@ try {
     case 'lint': { const errs = lint(loadManifest(arg)); if (errs.length) { console.error(errs.join('\n')); process.exit(1); } console.log(`${arg}: contract ok (${loadManifest(arg).verbs.length} verbs)`); break; }
     case 'list': { const names = listManifests(); console.log(names.length ? names.map(n => { const m = loadManifest(n); return `${n}\t${m.engine}\t${m.verbs.length} verbs\t${m.source}`; }).join('\n') : 'no adapters yet; declick add <source>'); break; }
     case 'remove': loadManifest(arg); rmSync(manifestDir(arg), { recursive: true }); console.log(`removed ${arg}`); break;
+    case 'ui': {
+      const server = await startUi({ port: flags.port ? Number(flags.port) : 4870 });
+      const url = `http://127.0.0.1:${server.address().port}`;
+      process.stderr.write(`declick ui at ${url}\n`);
+      if (flags.open && process.platform === 'win32') spawnSync('cmd', ['/c', 'start', '', url], { stdio: 'ignore' });
+      await new Promise(() => {});
+      break;
+    }
     default: console.log(USAGE); process.exit(cmd ? 1 : 0);
   }
 } catch (e) { console.error(e.message); process.exit(e.exit ?? 1); }

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { loadManifest } from '../src/manifest.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { loadManifest, manifestDir } from '../src/manifest.mjs';
 import { describe } from '../src/describe.mjs';
 import { emit, parseFlags, EXIT } from '../src/output.mjs';
 import { engines } from '../src/engines/index.mjs';
@@ -32,5 +34,9 @@ try {
   result = { ok: false, error: e.message, exit: e.exit ?? EXIT.ERROR };
 }
 const { text, exit } = emit(result, { json: flags.json === true || !process.stdout.isTTY, fields: flags.fields, limit: flags.limit });
+try {
+  const dir = manifestDir(name); mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'last-run.json'), JSON.stringify({ verb, ok: exit === 0, exit, at: new Date().toISOString() }, null, 2) + '\n');
+} catch {}
 process.stdout.write(text + '\n');
 process.exit(exit);
