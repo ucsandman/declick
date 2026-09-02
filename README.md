@@ -40,6 +40,21 @@ node bin/run.mjs petstore get-pet-by-id 7 --dry-run
 | SKILL.md | Generated from the manifest: when to use, the describe output, three examples. |
 | Lint | `declick lint <name>` fails the build if any guarantee above is violated. |
 
+## Desktop adapters: author, replay, repair
+
+Hand-written recipes still work (`declick add app:Notepad --recipes fixtures/notepad`). The normal path is to let Claude write one:
+
+```
+declick add app:Calculator --goal "multiply two numbers and return the display" --verb multiply
+calc multiply Three Four
+```
+
+`declick add --goal` runs one bounded Claude Code session (sonnet) that may only read the window tree through deskclaw. It proposes a recipe with an `example` and an `expect` regex. declick dry-runs the recipe to prove every element path resolves, replays it once for real (deskclaw must be armed: `desk arm 15`), and saves it only when the returned value matches `expect`. A rejected proposal is kept at `~/.declick/<name>/proposals/<verb>.json` for inspection, and nothing else changes.
+
+`declick author <name> --goal "..."` adds a verb to an existing adapter. `declick repair <name> <verb>` runs the same loop seeded with the recipe and the tree diff from the last exit 2, which the runtime writes to `~/.declick/<name>/last-error.json`.
+
+Requires the Claude Code CLI on PATH (`DECLICK_CLAUDE` overrides). The authoring session never receives `ANTHROPIC_API_KEY`.
+
 ## Desktop engine
 
 deskclaw is a PowerShell layer over .NET UI Automation that can snapshot a window into a tree of `@eN` element refs and act on them (`click`, `type`, `key`, `focus`). Acting is gated: `desk arm 15` opens a window of a few minutes, an unarmed acting call exits 4, and a STOP file halts everything with exit 3. declick does not modify deskclaw. It shells out to it.
@@ -72,11 +87,10 @@ When the app changes, replay does not guess. The missing path exits 2 and prints
 {"ok":false,"error":"element not found: Group:Standard operators > Button:Plus Sign in \"Calculator\"; run: declick repair calc add","exit":2}
 ```
 
-`declick repair <name> <verb>` reruns authoring seeded with that diff. Authoring and repair arrive in phase 3; for now recipes are handed to `--recipes <dir>`.
+`declick repair <name> <verb>` reruns authoring seeded with that diff. See the authoring section above; hand-written recipes are still accepted through `--recipes <dir>`.
 
 ## Roadmap
 
-- Phase 3: authoring and repair. `declick add app:Outlook --goal "export a date range to CSV"` explores the app once, proposes a recipe, replays it under supervision, and saves it only when the replay returns the expected element.
 - Phase 4: mcp and web delegates through mcporter and OpenCLI. Both currently exit 4 with the install line.
 - Phase 5: `declick ui`, a local page listing every adapter with build, repair, and remove buttons, then npm publish and the declick.dev landing page.
 

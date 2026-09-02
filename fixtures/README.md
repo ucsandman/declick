@@ -1,5 +1,7 @@
 # fixtures
 
+These fixtures are the hand-written recipe path used by tests. Authored recipes are stored per adapter under ~/.declick/<name>/recipes/.
+
 Adapters used by the test suite. Each directory passed to `--recipes` becomes one desktop adapter, one verb per `*.json` file, verb name from the file name.
 
 ## petstore.json
