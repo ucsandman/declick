@@ -37,20 +37,21 @@ footer{margin-top:4rem;color:var(--dim);font-size:.9rem;border-top:1px solid var
 <h2>Install</h2>
 <pre><code><span class="cmd">npm i -g declick</span>
 <span class="cmd">declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore</span>
-<span class="cmd">petstore describe</span>
+<span class="cmd">declick run petstore describe</span>
 <span class="out">petstore (openapi)  source: https://petstore3.swagger.io/api/v3/openapi.json
   get-pet-by-id &lt;petId&gt;      Find pet by ID
   find-pets-by-status        Finds Pets by status
   ...
 common: --json --fields --limit --dry-run   exit: 0 ok 1 err 2 missing 3 blocked 4 auth</span>
-<span class="cmd">petstore get-pet-by-id 7 --json</span></code></pre>
-<p>Each adapter also gets a two line launcher and a generated <code>SKILL.md</code>, so Claude Code and other agents discover it without being told.</p>
+<span class="cmd">declick run petstore get-pet-by-id 7 --json</span></code></pre>
+<p>Each adapter also gets a two line launcher (<code>petstore get-pet-by-id 7</code> once <code>~/.declick/bin</code> is on PATH; <code>declick path --install</code> does that) and a generated <code>SKILL.md</code>, so Claude Code and other agents discover it without being told. Requires Node 24.</p>
 
 <h2 id="desktop">Windows apps, without a model in the loop at run time</h2>
 <p>Web pages and MCP servers already have converters. Native Windows apps did not. declick owns that engine, built on <a href="https://github.com/ucsandman/deskclaw">deskclaw</a> UI Automation.</p>
-<pre><code><span class="cmd">declick add app:Calculator --goal "multiply two numbers and return the display" --verb multiply</span>
+<pre><code><span class="cmd">declick desk arm 15</span>
+<span class="cmd">declick add app:Calculator --goal "multiply two numbers and return the display" --verb multiply</span>
 <span class="out">saved ~/.declick/calculator/recipes/multiply.json (replay returned "Display is 12")</span>
-<span class="cmd">calculator multiply Three Four --json</span>
+<span class="cmd">declick run calculator multiply Three Four</span>
 <span class="out">{"ok":true,"data":"Display is 12","meta":{"count":1,"truncated":false}}</span></code></pre>
 <p>Authoring runs one bounded Claude Code session that may only read the window tree. It proposes a recipe with an example and an expected result. declick dry-runs the recipe to prove every element path resolves, replays it once for real while you watch, and saves it only when the result matches. After that, replay is deterministic: element paths by <code>ControlType:Name</code>, never coordinates, never screenshots.</p>
 <p>When the app changes, replay does not guess. The missing path exits 2 with a diff of the recorded tree against the live one, and <code>declick repair</code> reruns authoring seeded with that diff.</p>
@@ -61,17 +62,18 @@ common: --json --fields --limit --dry-run   exit: 0 ok 1 err 2 missing 3 blocked
 <tr><td><code>&lt;name&gt; describe</code></td><td>Whole surface in under 500 tokens.</td></tr>
 <tr><td><code>--json</code></td><td>Default when piped. <code>{ok, data, meta:{count, truncated}}</code></td></tr>
 <tr><td><code>--fields</code>, <code>--limit</code></td><td>Project named fields, cap list output.</td></tr>
-<tr><td><code>--dry-run</code></td><td>Every mutating verb prints what it would do.</td></tr>
+<tr><td><code>--dry-run</code></td><td>Every mutating verb prints what it would do, with <code>meta.dryRun: true</code>.</td></tr>
+<tr><td>Errors</td><td><code>{ok:false, error, exit}</code> plus <code>data</code> when the engine has a payload. Unknown flags are exit 1, never ignored.</td></tr>
 <tr><td>Exit codes</td><td>0 ok, 1 error, 2 not found, 3 blocked, 4 auth needed.</td></tr>
 <tr><td>Governance</td><td>Mutating verbs route through DashClaw when <code>DASHCLAW_API_KEY</code> is set.</td></tr>
 <tr><td>Auth</td><td>Manifests name env keys only. Values come from the environment or the creds vault.</td></tr>
 </table>
-<p><code>declick lint</code> enforces all of it on every adapter.</p>
+<p><code>declick lint</code> checks every adapter against the contract, and every <code>declick</code> command follows it too: <code>list</code>, <code>status</code>, <code>doctor</code>, <code>auth</code>, <code>manifest</code>, <code>run</code>, all with <code>--json</code>, so an agent never leaves the shell.</p>
 
 <h2>Next</h2>
 <ul>
 <li>MCP servers through mcporter and websites through OpenCLI, behind the same contract.</li>
-<li><code>declick ui</code> already ships: one local page with every adapter, last run, and build, repair, remove buttons.</li>
+<li><code>declick ui</code> already ships: one local page with every adapter, last run, and add, build, repair, remove buttons.</li>
 </ul>
 
 <footer>MIT. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>. Source on <a href="https://github.com/ucsandman/declick">GitHub</a>.</footer>

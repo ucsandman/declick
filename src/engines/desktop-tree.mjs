@@ -19,19 +19,20 @@ function segMatch(el, seg) {
   return el.name === name;
 }
 
+// Depth-first with backtracking: a segment that matches a node whose subtree cannot satisfy the
+// rest of the path is abandoned and the next candidate is tried. First full match in tree order wins.
 export function findByPath(els, path) {
-  let start = 0, parent = null;
-  for (const seg of path) {
-    let hit = null;
-    for (let i = start; i < els.length; i++) {
-      const el = els[i];
-      if (parent && el.depth <= parent.depth) break;
-      if (segMatch(el, seg)) { hit = el; start = i + 1; break; }
+  const subtreeEnd = i => { let j = i + 1; while (j < els.length && els[j].depth > els[i].depth) j++; return j; };
+  const search = (from, to, k) => {
+    for (let i = from; i < to; i++) {
+      if (!segMatch(els[i], path[k])) continue;
+      if (k === path.length - 1) return els[i];
+      const hit = search(i + 1, subtreeEnd(i), k + 1);
+      if (hit) return hit;
     }
-    if (!hit) return null;
-    parent = hit;
-  }
-  return parent;
+    return null;
+  };
+  return path.length ? search(0, els.length, 0) : null;
 }
 
 export function treeDiff(recorded, live) {

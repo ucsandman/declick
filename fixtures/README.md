@@ -6,7 +6,11 @@ Adapters used by the test suite. Each directory passed to `--recipes` becomes on
 
 ## petstore.json
 
-Trimmed OpenAPI 3 spec with four operations. Feeds the openapi engine tests and the README install walkthrough. Dry run only; no test ever calls petstore3.swagger.io.
+Trimmed OpenAPI 3 spec with four operations and an absolute server url. Feeds the openapi engine tests. Dry run only; no test ever calls petstore3.swagger.io.
+
+## openapi-edge.json
+
+One spec that exercises the edge cases the openapi engine must handle: a relative server url with variables, $ref parameters and bodies, path plus operation parameters, hyphenated names, required query params, oauth2 and cookie auth, a form body, missing operationIds, and reserved flag names.
 
 ## calculator/
 

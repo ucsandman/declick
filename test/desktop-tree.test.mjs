@@ -23,6 +23,12 @@ test('findByPath walks descendants', () => {
   assert.equal(findByPath(els, ['Text:Display is *']).ref, '@e8');
   assert.equal(findByPath(els, ['Button:*']).ref, '@e3');
 });
+test('findByPath backtracks out of a dead-end branch', () => {
+  const els = parseSnapshot(SNAP);
+  assert.equal(findByPath(els, ['Group:*', 'Button:Equals']).ref, '@e7');
+  assert.equal(findByPath(els, ['Window:*', 'Group:*', 'Button:Plus']).ref, '@e6');
+  assert.equal(findByPath(els, ['Group:*', 'Button:Nine']), null);
+});
 test('treeDiff reports missing and added', () => {
   const a = parseSnapshot(SNAP);
   const b = parseSnapshot(SNAP.replace('Button "Eight"', 'Button "Nine"'));

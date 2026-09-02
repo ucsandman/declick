@@ -1,6 +1,6 @@
 {
   "name": "declick",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn anything into a CLI so your agents stop clicking.",
   "type": "module",
   "bin": {
@@ -35,6 +35,7 @@
   "files": [
     "bin",
     "src",
+    "skills",
     "fixtures",
     "README.md"
   ]

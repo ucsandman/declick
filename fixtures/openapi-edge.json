@@ -1,0 +1,53 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Edge API", "version": "1.0.0" },
+  "servers": [{ "url": "https://{host}/v{ver}/", "variables": { "host": { "default": "edge.example.com" }, "ver": { "default": "2" } } }],
+  "security": [{ "oauth": [] }],
+  "components": {
+    "parameters": {
+      "PageSize": { "name": "page-size", "in": "query", "schema": { "type": "integer" }, "description": "rows per page" },
+      "Id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+    },
+    "schemas": {
+      "NewItem": { "properties": { "title": { "type": "string", "description": "item title" }, "note": { "type": "string" } }, "required": ["title"] }
+    },
+    "requestBodies": {
+      "Form": { "content": { "application/x-www-form-urlencoded": { "schema": { "$ref": "#/components/schemas/NewItem" } } } }
+    },
+    "securitySchemes": {
+      "oauth": { "type": "oauth2", "flows": { "clientCredentials": { "tokenUrl": "https://edge.example.com/t", "scopes": {} } } },
+      "session": { "type": "apiKey", "in": "cookie", "name": "sid" },
+      "mtls": { "type": "mutualTLS" }
+    }
+  },
+  "paths": {
+    "/items": {
+      "parameters": [
+        { "$ref": "#/components/parameters/PageSize" },
+        { "name": "limit", "in": "query", "schema": { "type": "integer" }, "description": "path level loses" }
+      ],
+      "get": {
+        "operationId": "list", "summary": "List items", "tags": ["items"],
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" }, "description": "max rows" },
+          { "name": "status", "in": "query", "required": true, "schema": { "type": "array", "items": { "type": "string" } }, "description": "one or more states" }
+        ]
+      },
+      "post": {
+        "operationId": "describe", "summary": "Describe items", "tags": ["items"],
+        "security": [{ "session": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/Form" }
+      }
+    },
+    "/users": {
+      "get": { "operationId": "list", "summary": "List users", "tags": ["users"] },
+      "post": { "operationId": "list", "summary": "Create a user", "tags": ["users"] }
+    },
+    "/items/{id}": {
+      "get": { "summary": "Get one item", "tags": ["items"], "parameters": [{ "$ref": "#/components/parameters/Id" }] }
+    },
+    "/setup": {
+      "post": { "operationId": "2faSetup", "summary": "Start 2FA setup", "tags": ["admin"], "security": [{ "mtls": [] }] }
+    }
+  }
+}

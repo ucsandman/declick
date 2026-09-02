@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { parseSnapshot, findByPath, treeDiff } from './desktop-tree.mjs';
-import { recipesDir, listRecipes } from '../recipes.mjs';
+import { recipesDir, listRecipes, validateStoredRecipe } from '../recipes.mjs';
 import { manifestDir } from '../manifest.mjs';
 import { EXIT } from '../output.mjs';
 
@@ -36,6 +36,8 @@ export async function compile(source, { name, recipes } = {}) {
   if (!dir) throw Object.assign(new Error(`no recipes for ${adapter}; author one: declick add ${source} --goal "what the verb should do"`), { exit: 1 });
   const verbs = readdirSync(dir).filter(f => f.endsWith('.json')).sort().map(f => {
     const r = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+    const errs = validateStoredRecipe(r);
+    if (errs.length) throw Object.assign(new Error(`invalid recipe ${f}: ${errs.join('; ')}`), { exit: 1 });
     return { name: basename(f, '.json'), description: r.description, args: r.args || [], flags: [], mutating: r.mutating !== false, recipe: { steps: r.steps, returns: r.returns, tree: r.tree || null } };
   });
   return { name: adapter, engine: 'desktop', source, window, builtAt: new Date().toISOString(), auth: { env: [] }, verbs };
@@ -49,6 +51,13 @@ export async function execute(m, verbName, positional, flags = {}) {
   const vars = {}; v.args.forEach((a, i) => { vars[a.name] = positional[i]; });
   const missing = v.args.filter((a, i) => a.required !== false && positional[i] === undefined);
   if (missing.length) return { ok: false, exit: EXIT.ERROR, error: `${verbName} needs ${v.args.map(a => `<${a.name}>`).join(' ')}` };
+  // A placeholder with no arg behind it silently substituted "" and clicked the wrong thing.
+  for (const [, k] of JSON.stringify(v.recipe.steps).matchAll(/\{\{(\w+)\}\}/g)) {
+    if (!(k in vars)) return { ok: false, exit: EXIT.ERROR, error: `recipe uses undeclared {{${k}}}; declare it in args or fix the recipe` };
+  }
+  const bin = DESK();
+  // The real deskclaw entry point is a bash launcher; only the .mjs test double may be absent.
+  if (!bin.endsWith('.mjs') && !existsSync(bin)) return { ok: false, exit: EXIT.ERROR, error: `deskclaw not found at ${bin}; install https://github.com/ucsandman/deskclaw or set DECLICK_DESK` };
   const dry = !!flags.dryRun;
   const els = {}; const out = {}; const trace = [];
   let title = m.window;
@@ -62,11 +71,14 @@ export async function execute(m, verbName, positional, flags = {}) {
     if (step.find) {
       const path = step.find.map(s => sub(s, vars));
       const r = desk('snapshot', title);
-      if (r.code && r.code !== 2) return { ok: false, ...mapExit(r.code, r.err) };
+      if (r.code === 3 || r.code === 4) return { ok: false, ...mapExit(r.code, r.err) };
       const live = parseSnapshot(r.out);
+      // No tree at all is a closed window, not a moved element: repairing the recipe cannot fix it.
+      if (r.code || !live.length) return { ok: false, exit: EXIT.NOT_FOUND, error: `window "${title}" is not open; start the app or check the title` };
       const hit = findByPath(live, path);
       if (!hit) {
         const diff = v.recipe.tree ? treeDiff(v.recipe.tree.map(k => { const i = k.indexOf(':'); return { type: k.slice(0, i), name: k.slice(i + 1) }; }), live) : { missing: [], added: [] };
+        diff.unresolved = path;
         const error = `element not found: ${path.join(' > ')} in "${title}"; run: declick repair ${m.name} ${verbName}`;
         try { mkdirSync(manifestDir(m.name), { recursive: true }); writeFileSync(join(manifestDir(m.name), 'last-error.json'), JSON.stringify({ verb: verbName, error, diff, at: new Date().toISOString() }, null, 2) + '\n'); } catch {}
         return { ok: false, exit: EXIT.NOT_FOUND, error, data: diff };
@@ -91,5 +103,6 @@ export async function execute(m, verbName, positional, flags = {}) {
     return { ok: false, exit: EXIT.ERROR, error: `unknown recipe step ${JSON.stringify(step)}` };
   }
   if (dry) return { ok: true, data: { steps: trace } };
+  try { rmSync(join(manifestDir(m.name), 'last-error.json'), { force: true }); } catch {}
   return { ok: true, data: v.recipe.returns ? out[v.recipe.returns] : { done: true } };
 }

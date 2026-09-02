@@ -1,9 +1,28 @@
 # declick
 
-> Turn anything into a CLI so your agents stop clicking. declick compiles an OpenAPI spec or a native Windows app into a command line tool with one guaranteed output contract.
+> Turn anything into a CLI so your agents stop clicking. declick compiles an OpenAPI spec or a native Windows app into a command line tool with one guaranteed output contract, and every declick command honors that contract too.
 
 - Source: https://github.com/ucsandman/declick
 - Package: https://www.npmjs.com/package/declick
-- Install: npm i -g declick
-- Contract: describe under 500 tokens, --json, --fields, --limit, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw when configured, auth by env key name, generated SKILL.md per adapter
-- Engines: openapi (built in), desktop (native Windows via deskclaw UI Automation, deterministic recipe replay, authoring and repair through a bounded Claude Code session), mcp and web (next)
+- Install: npm i -g declick (Node 24 or newer)
+- Contract: describe under 500 tokens, --json default when piped, --fields, --limit, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw when configured, auth by env key name, generated SKILL.md per adapter plus one for declick itself
+- Engines: openapi (built in), desktop (native Windows via deskclaw UI Automation, deterministic recipe replay, authoring and repair through a bounded Claude Code session), mcp and web (0.2)
+
+## Commands
+
+- declick add <spec.json | https://.../openapi.json | app:"Window Title"> --name <n> [--verbs a,b | --tag t]   compile a surface into an adapter
+- declick run <n> <verb> [args] [--flags]   invoke a verb; also <n> <verb> once ~/.declick/bin is on PATH (declick path --install)
+- declick describe <n> [--full] [--verb v]   the surface; --json for data. declick manifest <n> for the full compiled contract
+- declick list | status [<n>] | doctor | auth <n> | engines | version   inventory, last run and error, health, missing keys
+- declick add app:"Title" --name <n> --goal "..." --verb v   Claude authors a desktop verb (declick desk arm 15 first)
+- declick author <n> --goal "..." | repair <n> <verb> | proposals <n> | accept <n> <verb> | recipes <n> | recipe <n> <verb>
+- declick build <n> | lint <n> | skill [<n>] | remove <n> [<verb>] | export <n> | import [<file>|-]
+- declick desk status | arm [minutes] | disarm
+- declick ui [--port N] [--open]   local page with add, build, repair, remove
+
+## Output
+
+- Success: {"ok":true,"data":...,"meta":{"count":N,"truncated":false}}   (meta.dryRun: true on --dry-run)
+- Failure: {"ok":false,"error":"...","exit":N}   plus "data" when the engine has a payload
+- Flags: --flag value and --flag=value; boolean flags never eat the next argument; unknown flags are exit 1
+- Adapters live at ~/.declick/<n>/manifest.json; skills at ~/.claude/skills/<n>/SKILL.md; never edit either by hand

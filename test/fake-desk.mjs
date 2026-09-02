@@ -6,6 +6,8 @@ const log = process.env.FAKE_DESK_LOG;
 if (log) appendFileSync(log, JSON.stringify([verb, a, b]) + '\n');
 if (process.env.FAKE_DESK_STOP === '1') { console.error('deskclaw is STOPPED'); process.exit(3); }
 if (verb === 'snapshot') {
+  // FAKE_DESK_CLOSED stands in for a window that is gone: deskclaw exits 2 and prints no tree.
+  if (process.env.FAKE_DESK_CLOSED === '1') { console.error('no window matching that title'); process.exit(2); }
   process.stdout.write(`@e1 Window "${a}" [0,0]
   @e2 Group "Number pad" [0,0]
     @e3 Button "Seven" [0,0]
