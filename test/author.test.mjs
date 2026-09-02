@@ -37,3 +37,41 @@ test('validateRecipe', () => {
   assert.ok(validateRecipe({ ...good, example: undefined }).some(e => /example/.test(e)));
   assert.ok(validateRecipe({ ...good, steps: [{ find: ['Button:X'] }] }).some(e => /as/.test(e)));
 });
+
+const { author } = await import('../src/author.mjs');
+const { recipesDir } = await import('../src/recipes.mjs');
+const { manifestDir } = await import('../src/manifest.mjs');
+
+test('author saves a recipe when the live replay matches expect', async () => {
+  process.env.FAKE_AUTHOR_RECIPE = JSON.stringify(good);
+  process.env.FAKE_DESK_ARMED = '1'; process.env.FAKE_DESK_DISPLAY = '14';
+  process.env.FAKE_AUTHOR_LOG = join(process.env.DECLICK_HOME, 'prompt.txt');
+  const out = await author({ name: 'calc', window: 'Calculator', goal: 'add two numbers', verb: 'add' });
+  assert.equal(out.result, 'Display is 14');
+  assert.ok(existsSync(join(recipesDir('calc'), 'add.json')));
+  const saved = JSON.parse(readFileSync(join(recipesDir('calc'), 'add.json'), 'utf8'));
+  assert.ok(saved.tree.includes('Button:Seven'));
+  assert.ok(readFileSync(process.env.FAKE_AUTHOR_LOG, 'utf8').includes('add two numbers'));
+});
+test('author keeps a proposal and exits 2 when expect does not match', async () => {
+  process.env.FAKE_AUTHOR_RECIPE = JSON.stringify({ ...good, verb: 'sub', expect: '^Display is 99$' });
+  process.env.FAKE_DESK_ARMED = '1'; process.env.FAKE_DESK_DISPLAY = '14';
+  await assert.rejects(author({ name: 'calc', window: 'Calculator', goal: 'subtract', verb: 'sub' }), e => e.exit === 2 && /expected/.test(e.message));
+  assert.ok(existsSync(join(manifestDir('calc'), 'proposals', 'sub.json')));
+  assert.ok(!existsSync(join(recipesDir('calc'), 'sub.json')));
+});
+test('author exits 2 when dry-run cannot find an element', async () => {
+  process.env.FAKE_AUTHOR_RECIPE = JSON.stringify({ ...good, verb: 'nine', steps: [{ window: 'Calculator' }, { find: ['Button:Nine'], as: 'n' }, { read: 'n', as: 'r' }], returns: 'r' });
+  process.env.FAKE_DESK_ARMED = '1';
+  await assert.rejects(author({ name: 'calc', window: 'Calculator', goal: 'x', verb: 'nine' }), e => e.exit === 2 && /dry-run failed/.test(e.message));
+});
+test('author exits 3 when replay is not armed', async () => {
+  process.env.FAKE_AUTHOR_RECIPE = JSON.stringify({ ...good, verb: 'add2' });
+  delete process.env.FAKE_DESK_ARMED;
+  await assert.rejects(author({ name: 'calc', window: 'Calculator', goal: 'x', verb: 'add2' }), e => e.exit === 3);
+});
+test('author exits 1 when the model produces no recipe', async () => {
+  process.env.FAKE_AUTHOR_MODE = 'nofence';
+  await assert.rejects(author({ name: 'calc', window: 'Calculator', goal: 'x', verb: 'add3' }), e => e.exit === 1 && /json/.test(e.message));
+  delete process.env.FAKE_AUTHOR_MODE;
+});

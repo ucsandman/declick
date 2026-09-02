@@ -57,3 +57,50 @@ export function validateRecipe(r) {
   else { try { new RegExp(r.expect); } catch { errs.push('expect is not a valid regex'); } }
   return errs;
 }
+
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { manifestDir } from './manifest.mjs';
+import { saveRecipe } from './recipes.mjs';
+import { execute, snapshotTree, DESK } from './engines/desktop.mjs';
+import { EXIT } from './output.mjs';
+
+export function runAuthor(prompt, { cwd = process.cwd() } = {}) {
+  const env = { ...process.env }; delete env.ANTHROPIC_API_KEY;
+  const fake = process.env.DECLICK_AUTHOR;
+  const desk = DESK().replace(/\\/g, '/');
+  const cmd = fake ? process.execPath : (process.env.DECLICK_CLAUDE || 'claude');
+  const args = fake ? [fake] : ['-p', '--model', 'sonnet', '--output-format', 'json', '--max-turns', '40',
+    '--allowedTools', `Bash(bash "${desk}" snapshot:*),Bash(bash "${desk}" windows:*)`];
+  const r = spawnSync(cmd, args, { cwd, env, input: prompt, encoding: 'utf8', timeout: 300000, windowsHide: true });
+  if (r.error) throw Object.assign(new Error(`author runner failed to start (${r.error.message}); set DECLICK_CLAUDE to the claude binary`), { exit: EXIT.ERROR });
+  if (r.status !== 0) throw Object.assign(new Error(`author runner exited ${r.status}: ${(r.stderr || '').trim().slice(0, 400)}`), { exit: EXIT.ERROR });
+  if (fake) return r.stdout;
+  try { return JSON.parse(r.stdout).result ?? r.stdout; } catch { return r.stdout; }
+}
+
+function keepProposal(name, verb, recipe) {
+  const dir = join(manifestDir(name), 'proposals'); mkdirSync(dir, { recursive: true });
+  const p = join(dir, `${verb}.json`); writeFileSync(p, JSON.stringify(recipe, null, 2) + '\n'); return p;
+}
+
+export async function author({ name, window, goal, verb, seed }) {
+  const text = runAuthor(buildPrompt({ window, goal, verb, desk: DESK().replace(/\\/g, '/'), seed }));
+  const r = parseRecipe(text);
+  const errs = validateRecipe(r);
+  if (errs.length) throw Object.assign(new Error(`author recipe invalid: ${errs.join('; ')}`), { exit: EXIT.ERROR });
+  const m = { name, engine: 'desktop', source: `app:${window}`, window, builtAt: new Date().toISOString(), auth: { env: [] },
+    verbs: [{ name: r.verb, description: r.description, args: r.args, flags: [], mutating: r.mutating === true, recipe: { steps: r.steps, returns: r.returns, tree: null } }] };
+  const dry = await execute(m, r.verb, r.example, { dryRun: true });
+  if (!dry.ok) { const p = keepProposal(name, r.verb, r); throw Object.assign(new Error(`dry-run failed: ${dry.error}; proposal kept at ${p}`), { exit: dry.exit === EXIT.BLOCKED ? EXIT.BLOCKED : EXIT.NOT_FOUND }); }
+  const res = await execute(m, r.verb, r.example, {});
+  if (!res.ok && res.exit === EXIT.BLOCKED) throw Object.assign(new Error(`replay blocked: ${res.error}`), { exit: EXIT.BLOCKED });
+  if (!res.ok || !new RegExp(r.expect).test(String(res.data))) {
+    const p = keepProposal(name, r.verb, r);
+    throw Object.assign(new Error(`replay returned ${JSON.stringify(res.ok ? res.data : res.error)}, expected /${r.expect}/; proposal kept at ${p}`), { exit: EXIT.NOT_FOUND });
+  }
+  const recipe = { description: r.description, args: r.args, mutating: r.mutating === true, steps: r.steps, returns: r.returns, tree: snapshotTree(window), example: r.example, expect: r.expect };
+  const path = saveRecipe(name, r.verb, recipe);
+  return { recipe, path, result: res.data };
+}

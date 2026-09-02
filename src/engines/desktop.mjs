@@ -6,7 +6,12 @@ import { parseSnapshot, findByPath, treeDiff } from './desktop-tree.mjs';
 import { recipesDir, listRecipes } from '../recipes.mjs';
 import { EXIT } from '../output.mjs';
 
-const DESK = () => process.env.DECLICK_DESK || join(homedir(), '.claude', 'tools', 'deskclaw', 'desk');
+export const DESK = () => process.env.DECLICK_DESK || join(homedir(), '.claude', 'tools', 'deskclaw', 'desk');
+
+export function snapshotTree(title) {
+  const r = desk('snapshot', title);
+  return r.code ? [] : parseSnapshot(r.out).map(e => `${e.type}:${e.name}`);
+}
 
 function desk(...args) {
   const bin = DESK();
