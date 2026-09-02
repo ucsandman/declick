@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { parseSnapshot, findByPath, treeDiff } from './desktop-tree.mjs';
+import { recipesDir, listRecipes } from '../recipes.mjs';
 import { EXIT } from '../output.mjs';
 
 const DESK = () => process.env.DECLICK_DESK || join(homedir(), '.claude', 'tools', 'deskclaw', 'desk');
@@ -25,9 +26,10 @@ function mapExit(code, err) {
 export async function compile(source, { name, recipes } = {}) {
   const window = source.replace(/^app:/, '');
   const adapter = name || window.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  if (!recipes) throw Object.assign(new Error(`desktop adapters need recipes; phase 3 adds authoring. For now: declick add ${source} --recipes <dir>`), { exit: 1 });
-  const verbs = readdirSync(recipes).filter(f => f.endsWith('.json')).sort().map(f => {
-    const r = JSON.parse(readFileSync(join(recipes, f), 'utf8'));
+  const dir = recipes || (listRecipes(adapter).length ? recipesDir(adapter) : null);
+  if (!dir) throw Object.assign(new Error(`no recipes for ${adapter}; author one: declick add ${source} --goal "what the verb should do"`), { exit: 1 });
+  const verbs = readdirSync(dir).filter(f => f.endsWith('.json')).sort().map(f => {
+    const r = JSON.parse(readFileSync(join(dir, f), 'utf8'));
     return { name: basename(f, '.json'), description: r.description, args: r.args || [], flags: [], mutating: r.mutating !== false, recipe: { steps: r.steps, returns: r.returns, tree: r.tree || null } };
   });
   return { name: adapter, engine: 'desktop', source, window, builtAt: new Date().toISOString(), auth: { env: [] }, verbs };

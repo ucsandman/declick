@@ -7,6 +7,7 @@ import { parseFlags } from '../src/output.mjs';
 import { engines, pickEngine } from '../src/engines/index.mjs';
 import { writeLauncher } from '../src/launcher.mjs';
 import { writeSkill } from '../src/skill.mjs';
+import { importRecipes } from '../src/recipes.mjs';
 
 const USAGE = `declick: turn anything into a CLI so your agents stop clicking
   declick add <source> [--name n] [--goal "..."]   source: spec.json | https://... | app:<window title> | mcp:<server>
@@ -18,7 +19,9 @@ const USAGE = `declick: turn anything into a CLI so your agents stop clicking
 
 async function build(source, flags) {
   const engine = pickEngine(source);
-  const m = await engines[engine].compile(source, { name: flags.name, goal: flags.goal, recipes: flags.recipes });
+  const name = flags.name || (engine === 'desktop' ? source.replace(/^app:/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : undefined);
+  if (engine === 'desktop' && flags.recipes) importRecipes(name, flags.recipes);
+  const m = await engines[engine].compile(source, { name, goal: flags.goal, recipes: engine === 'desktop' ? undefined : flags.recipes });
   const errs = lint(m);
   if (errs.length) throw Object.assign(new Error(`lint failed:\n  ${errs.join('\n  ')}`), { exit: 1 });
   saveManifest(m); writeLauncher(m.name); writeSkill(m);
