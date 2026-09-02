@@ -75,3 +75,12 @@ test('author exits 1 when the model produces no recipe', async () => {
   await assert.rejects(author({ name: 'calc', window: 'Calculator', goal: 'x', verb: 'add3' }), e => e.exit === 1 && /json/.test(e.message));
   delete process.env.FAKE_AUTHOR_MODE;
 });
+test('author clamps a long description to the 80 char lint cap', async () => {
+  const long = 'Multiply two numbers entered as calculator digit names and return the display text after equals';
+  process.env.FAKE_AUTHOR_RECIPE = JSON.stringify({ ...good, verb: 'mul', description: long });
+  process.env.FAKE_DESK_ARMED = '1'; process.env.FAKE_DESK_DISPLAY = '14';
+  await author({ name: 'calc', window: 'Calculator', goal: 'x', verb: 'mul' });
+  const saved = JSON.parse(readFileSync(join(recipesDir('calc'), 'mul.json'), 'utf8'));
+  assert.ok(saved.description.length <= 80 && saved.description.length > 40, saved.description);
+  assert.ok(!/\s$/.test(saved.description));
+});

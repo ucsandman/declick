@@ -24,7 +24,7 @@ Arguments are substituted into {{name}} anywhere in a path or text. Re-find an e
 
 Answer with reasoning as you like, then end with exactly one fenced json block of this shape:
 \`\`\`json
-{"verb": "${verb}", "description": "one line, imperative", "args": [{"name": "a"}], "mutating": false,
+{"verb": "${verb}", "description": "one line, imperative, under 80 characters", "args": [{"name": "a"}], "mutating": false,
  "steps": [ ... ], "returns": "out",
  "example": ["value for each arg, in order"], "expect": "regex the returned value must match when run with example"}
 \`\`\`
@@ -80,6 +80,9 @@ export function runAuthor(prompt, { cwd = process.cwd() } = {}) {
   try { return JSON.parse(r.stdout).result ?? r.stdout; } catch { return r.stdout; }
 }
 
+// lint caps descriptions at 80 chars; cut at a word boundary rather than reject a recipe that already replayed
+const clamp = (s, n) => { s = String(s).trim(); if (s.length <= n) return s; const cut = s.slice(0, n).replace(/\s+\S*$/, ''); return cut || s.slice(0, n); };
+
 function keepProposal(name, verb, recipe) {
   const dir = join(manifestDir(name), 'proposals'); mkdirSync(dir, { recursive: true });
   const p = join(dir, `${verb}.json`); writeFileSync(p, JSON.stringify(recipe, null, 2) + '\n'); return p;
@@ -100,7 +103,7 @@ export async function author({ name, window, goal, verb, seed }) {
     const p = keepProposal(name, r.verb, r);
     throw Object.assign(new Error(`replay returned ${JSON.stringify(res.ok ? res.data : res.error)}, expected /${r.expect}/; proposal kept at ${p}`), { exit: EXIT.NOT_FOUND });
   }
-  const recipe = { description: r.description, args: r.args, mutating: r.mutating === true, steps: r.steps, returns: r.returns, tree: snapshotTree(window), example: r.example, expect: r.expect };
+  const recipe = { description: clamp(r.description, 80), args: r.args, mutating: r.mutating === true, steps: r.steps, returns: r.returns, tree: snapshotTree(window), example: r.example, expect: r.expect };
   const path = saveRecipe(name, r.verb, recipe);
   return { recipe, path, result: res.data };
 }
