@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,6 +48,26 @@ export function pathHint() {
   // PATH by one duplicate entry per shell opened.
   const line = file.endsWith('config.fish') ? `fish_add_path "${bin}"` : `export PATH="$PATH:${bin}"`;
   return `echo '${line}' >> ${file.replace(homedir(), '~')}`;
+}
+
+// The one PATH edit both `path --install` and `setup` need, so there is a single implementation of it.
+// DECLICK_PATH_PROFILE (test-only) redirects the profile-file branch to a scratch file and skips the real
+// Windows user-PATH edit, so a test can exercise the posix branch on any platform including CI.
+export function installPath({ dry = false } = {}) {
+  if (onPath()) return { kind: null, file: null, line: null, added: false };
+  const useWin = WIN && !process.env.DECLICK_PATH_PROFILE;
+  if (dry) return { kind: useWin ? 'win-user' : 'profile', file: useWin ? null : (process.env.DECLICK_PATH_PROFILE || profileFile()), line: null, added: null };
+  if (useWin) {
+    const r = spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH','User') + ';${binDir()}', 'User')`], { encoding: 'utf8' });
+    if (r.status !== 0) throw Object.assign(new Error(`could not update user PATH: ${r.stderr.trim()}`), { exit: 1 });
+    return { kind: 'win-user', file: null, line: null, added: true };
+  }
+  const file = process.env.DECLICK_PATH_PROFILE || profileFile();
+  const fish = file.endsWith('config.fish');
+  const line = fish ? `fish_add_path "${binDir()}"` : `export PATH="$PATH:${binDir()}"`;
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `\n${line}\n`);
+  return { kind: 'profile', file, line, added: true };
 }
 
 // A shim named git, node or claude would shadow the real tool once bin is on PATH.

@@ -48,6 +48,7 @@ function page(rows, { token, authoring }) {
 <style>body{font:15px/1.45 system-ui,sans-serif;margin:2rem auto;max-width:960px;padding:0 1rem;color:#1a1a1a}h1{font-size:1.4rem;margin:0 0 .25rem}table{border-collapse:collapse;width:100%;margin-top:1rem}th,td{text-align:left;padding:.55rem .5rem;border-bottom:1px solid #e5e5e5;vertical-align:top}th{font-weight:600;color:#555}.dim{color:#777;font-size:.85em}.err{color:#a40000;font-size:.85em;margin-top:.25rem}button{font:inherit;padding:.3rem .7rem;border:1px solid #bbb;background:#fff;border-radius:6px;cursor:pointer}button:disabled{opacity:.45;cursor:default}button.danger{border-color:#d33;color:#a40000}input{font:inherit;padding:.3rem .5rem;border:1px solid #bbb;border-radius:6px}form{margin-top:1rem}pre{background:#f5f5f5;padding:.75rem;border-radius:6px;white-space:pre-wrap;font-size:.85em}code{background:#f5f5f5;padding:0 .25rem;border-radius:3px}</style></head>
 <body><h1>declick</h1><div class="dim">${esc(HOME)}</div>${empty}
 <form id="add"><input name="source" placeholder="source: spec.json | https://... | app:window | mcp:server" size="40" required> <input name="name" placeholder="name (optional)"> <input name="engine" placeholder="engine (optional)" size="10"> <input name="goal" placeholder="goal (optional)"> <button>add</button></form>
+<p><button id="setup-btn">Setup</button> <button id="revert-btn">Revert</button> <span class="dim">wire declick into this machine's agents, or undo it</span></p>
 <p class="dim">Every button here is a command: <code>declick commands</code> lists them all, <code>declick &lt;command&gt; --help</code> explains one. <a href="https://declick.dev" target="_blank" rel="noreferrer">docs</a></p>
 <table><thead><tr><th>adapter</th><th>engine</th><th>verbs</th><th>last run</th><th></th></tr></thead><tbody>${tr}</tbody></table>
 <pre id="out" hidden></pre>
@@ -62,6 +63,11 @@ document.addEventListener('click', async e => {
   const r = await fetch('/api/' + encodeURIComponent(name) + '/' + action, { method: 'POST', headers: { 'content-type': 'application/json', 'x-declick-token': TOKEN }, body: '{}' }).then(r => r.json());
   if (show(r) && action !== 'tree') return location.reload();
   b.disabled = false; b.textContent = action;
+});
+for (const [id, action] of [['setup-btn', 'setup'], ['revert-btn', 'revert']]) document.getElementById(id).addEventListener('click', async () => {
+  const b = document.getElementById(id); b.disabled = true; b.textContent = action + '...';
+  const r = await fetch('/api/setup/' + action, { method: 'POST', headers: { 'content-type': 'application/json', 'x-declick-token': TOKEN }, body: '{}' }).then(r => r.json());
+  show(r); b.disabled = false; b.textContent = action === 'setup' ? 'Setup' : 'Revert';
 });
 document.getElementById('add').addEventListener('submit', async e => {
   e.preventDefault();
@@ -109,6 +115,12 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
         const args = ['add', body.source];
         for (const [flag, key] of [['--name', 'name'], ['--engine', 'engine'], ['--goal', 'goal'], ['--verb', 'verb'], ['--recipes', 'recipes']]) if (body[key]) args.push(flag, body[key]);
         return send(200, JSON.stringify(runCli(args)));
+      }
+      if (req.method === 'POST' && (url.pathname === '/api/setup/setup' || url.pathname === '/api/setup/revert')) {
+        const action = url.pathname.endsWith('revert') ? 'revert' : 'setup';
+        const g = await guard({ tool: 'declick-ui', action, engine: 'declick', target: 'setup', args: {} });
+        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: `blocked by governance: ${g.reason}`, decision: g.decision }));
+        return send(200, JSON.stringify(runCli(action === 'revert' ? ['setup', '--revert'] : ['setup'])));
       }
       const m = req.method === 'POST' && /^\/api\/([a-z0-9-]+)\/(tree|build|repair|remove)$/.exec(url.pathname);
       if (m) {

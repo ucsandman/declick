@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, rmSync, readdirSync, statSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, readdirSync, statSync, writeFileSync, openSync, readSync, closeSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -8,7 +8,7 @@ import { HOME, KEBAB, loadManifest, saveManifest, listManifests, manifestDir, no
 import { describe, describeJson } from '../src/describe.mjs';
 import { lint } from '../src/lint.mjs';
 import { parseFlags, emit, camel, BOOLS, EXIT } from '../src/output.mjs';
-import { writeLauncher, removeLauncher, canWriteLauncher, binDir, onPath, pathHint, profileFile } from '../src/launcher.mjs';
+import { writeLauncher, removeLauncher, canWriteLauncher, binDir, onPath, pathHint, installPath } from '../src/launcher.mjs';
 import { writeSkill, writeSelfSkill, removeSkill, canWriteSkill, skillDirs, skillText } from '../src/skill.mjs';
 import { importRecipes, loadRecipe, listRecipes, removeRecipe, recipesDir, validateStoredRecipe } from '../src/recipes.mjs';
 import { author } from '../src/author.mjs';
@@ -16,6 +16,7 @@ import { startUi, adapterRows } from '../src/ui.mjs';
 import { DESK } from '../src/engines/desktop.mjs';
 import { loadEnv, vaultPath, mintHint } from '../src/creds.mjs';
 import { guardUrl, isStrict } from '../src/guard.mjs';
+import { runSetup, runRevert, runUninstall, integrationStatus, clientHomeOf } from '../src/setup.mjs';
 
 // ESM evaluates every static import before this module's own body runs, and src/engines/index.mjs statically
 // imports every engine including sqlite.mjs, which imports node:sqlite: on Node <24 that throws
@@ -74,6 +75,12 @@ const COMMANDS = [
     [F('source', 'string', 'classify a source without writing anything', 'x')], { examples: ['declick engines', 'declick engines --source ./spec.json'] }),
   C('path', 'where declick keeps adapters, launchers and skills', [], [F('install', 'boolean', 'put ~/.declick/bin on PATH for new shells')],
     { mutating: true, dryRun: true, examples: ['declick path --install'] }),
+  C('setup', 'wire declick into local agents: PATH, MCP adapters, rules, the hook; --revert undoes it', [],
+    [F('no-adopt', 'boolean', 'skip adopting MCP servers into adapters'), F('no-rules', 'boolean', 'skip the declick-first rules block'), F('no-hook', 'boolean', 'skip the Claude Code PreToolUse hook'),
+      F('no-path', 'boolean', 'skip the PATH edit'), F('revert', 'boolean', 'undo a previous setup, byte-exactly'), F('keep-adapters', 'boolean', 'revert: leave the adapters setup built in place')],
+    { mutating: true, dryRun: true, examples: ['declick setup --dry-run', 'declick setup', 'declick setup --revert'] }),
+  C('uninstall', 'revert setup (if it ran), delete ~/.declick, and print the npm removal command', [], [F('yes', 'boolean', 'skip the confirmation and actually delete'), F('keep-adapters', 'boolean', 'leave the adapters setup built in place')],
+    { mutating: true, dryRun: true, examples: ['declick uninstall --dry-run', 'declick uninstall --yes'] }),
   C('proposals', 'authoring proposals whose replay failed, waiting to be accepted', [P('name')], [], { examples: ['declick proposals calc'] }),
   C('recipes', 'stored desktop recipes for an adapter', [P('name')], [], { examples: ['declick recipes calc'] }),
   C('recipe', 'one stored recipe, step by step', [P('name'), P('verb')], [], { examples: ['declick recipe calc add'] }),
@@ -275,6 +282,7 @@ async function doctor() {
     governance: await governanceState(),
     // Engines and the external tools they can use, in one list: one call answers "what can I build from this machine".
     engines: [...engineRows, ...probes.filter(p => !ENGINE_INFO.some(e => e.name === p.name))],
+    integration: integrationStatus(),
   };
   const blocking = [], warnings = [];
   if (!checks.node.ok) blocking.push(`node ${node} is below 24; declick needs >=24`);
@@ -282,6 +290,7 @@ async function doctor() {
   else if (checks.governance.reachable === false) warnings.push(`governance endpoint ${checks.governance.url} did not answer in 2s; strict mode blocks every mutating verb`);
   if (adapters.some(n => readJson(join(manifestDir(n), 'manifest.json'))?.engine === 'desktop') && !d.exists) blocking.push(`deskclaw missing at ${d.path}; desktop verbs cannot run`);
   if (!checks.bin.onPath) warnings.push(`${binDir()} is not on PATH; ${checks.bin.fix}`);
+  if (existsSync(join(clientHomeOf(), '.claude')) && !checks.integration.clients.find(c => c.client === 'claude')?.rules) warnings.push('declick setup has not run; run: declick setup');
   // healthy, not ok: an agent reading data.ok next to the envelope's ok cannot tell which one refused.
   return { healthy: !blocking.length, blocking, warnings, problems: [...blocking, ...warnings], ...checks };
 }
@@ -543,11 +552,19 @@ try {
     case 'path': {
       const data = { home: HOME, bin: binDir(), onPath: onPath(), skills: skillDirs(), fix: onPath() ? null : pathHint() };
       if (flags.install && !data.onPath) {
-        if (dry) data.installed = null;
-        else if (process.platform === 'win32') { const r = spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH','User') + ';${binDir()}', 'User')`], { encoding: 'utf8' }); if (r.status !== 0) fail(`could not update user PATH: ${r.stderr.trim()}`); data.installed = 'user PATH (new shells only)'; }
-        else { const file = profileFile(); const fish = file.endsWith('config.fish'); mkdirSync(dirname(file), { recursive: true }); appendFileSync(file, `\n${fish ? `fish_add_path "${binDir()}"` : `export PATH="$PATH:${binDir()}"`}\n`); data.installed = `${file.replace(homedir(), '~')} (new shells only)`; }
+        const p = installPath({ dry });
+        data.installed = dry ? null : p.kind === 'win-user' ? 'user PATH (new shells only)' : `${p.file.replace(homedir(), '~')} (new shells only)`;
       }
       result = { ok: true, data }; break;
+    }
+    case 'setup': {
+      const r = flags.revert ? runRevert({ flags: { dryRun: dry, keepAdapters: !!flags.keepAdapters }, removeAdapter })
+        : await runSetup({ flags: { dryRun: dry, noAdopt: !!flags.noAdopt, noRules: !!flags.noRules, noHook: !!flags.noHook, noPath: !!flags.noPath }, build });
+      result = { ok: true, data: r.data }; text = r.text; break;
+    }
+    case 'uninstall': {
+      const r = runUninstall({ flags: { dryRun: dry, yes: !!flags.yes, keepAdapters: !!flags.keepAdapters }, removeAdapter });
+      result = { ok: true, data: r.data }; text = r.text; break;
     }
     case 'proposals': {
       const rows = proposals(arg).map(p => ({ verb: p.verb, path: p.path, description: p.recipe?.description ?? null, accept: `declick accept ${arg} ${p.verb}` }));

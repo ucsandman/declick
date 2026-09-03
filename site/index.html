@@ -32,7 +32,7 @@
   "@type": "SoftwareApplication",
   "name": "declick",
   "applicationCategory": "DeveloperApplication",
-  "softwareVersion": "0.3.2",
+  "softwareVersion": "0.4.0",
   "description": "Compile an OpenAPI spec, GraphQL API, MCP server, Postman collection, HAR capture, SQLite file, another CLI, a browser page, or a Windows app into a command line tool that returns one envelope with five exit codes.",
   "url": "https://declick.dev/",
   "softwareRequirements": "Node 24 or newer",
@@ -88,7 +88,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 </div>
 </div>
 <figure class="block">
-<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.3.2","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
+<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.4.0","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
 <figcaption><span class="cap"><code>declick version --json</code></span><span class="chip">exit 0</span></figcaption>
 </figure>
 <nav class="links secnav" aria-label="Sections of this page">
@@ -98,6 +98,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 <a href="#dry-run">dry run</a>
 <a href="#engines">engines</a>
 <a href="#compared">MCP and screenshot loops</a>
+<a href="#setup">setup</a>
 <a href="#desktop">Windows apps</a>
 <a href="#governance">governance</a>
 <a href="#agents">any agent</a>
@@ -338,6 +339,44 @@ common: --json --fields --limit --rows --dry-run --full --help   exit: 0 ok 1 er
 </div>
 </section>
 
+<section class="sec" id="setup">
+<h2 class="head-gap">One command wires your agent. One command unwires it.</h2>
+<div class="pane head-gap">
+<div>
+<p class="prose">Integrating declick into an agent by hand means putting the bin on PATH, compiling the agent's existing MCP servers into adapters, adding a rules block to its instruction file, and, for Claude Code, registering a hook that reminds the model an adapter exists. <code>declick setup</code> does all four, and <code>declick setup --dry-run</code> prints the plan first and writes nothing.</p>
+<p class="prose">Before any of it writes a file, setup takes a byte-exact snapshot under <code>~/.declick/setup/&lt;timestamp&gt;/</code>. <code>declick setup --revert</code> reads the latest snapshot: a file untouched since setup ran is restored byte for byte, or deleted if setup created it; a file you edited since keeps your edits and loses only the rules block or the hook entry. The snapshot carries a standalone <code>revert.mjs</code>, so <code>node ~/.declick/setup/&lt;timestamp&gt;/revert.mjs</code> restores files with no dependency on the package, even after <code>npm rm -g declick</code>. <code>declick uninstall --yes</code> runs a revert if one is available, deletes <code>~/.declick</code> entirely, and prints the <code>npm rm -g declick</code> line.</p>
+</div>
+<div>
+<h3>what setup does</h3>
+<ul class="ruled ruled--mono">
+<li>1. PATH: puts <code>~/.declick/bin</code> on it</li>
+<li>2. adopts the agent's MCP servers as adapters</li>
+<li>3. adds a rules block to CLAUDE.md or AGENTS.md</li>
+<li>4. installs the Claude Code PreToolUse hook</li>
+</ul>
+</div>
+</div>
+<div class="split head-gap">
+<div>
+<h3 class="head-gap">what revert restores</h3>
+<ul class="ruled ruled--mono">
+<li>unedited file &rarr; restored byte for byte</li>
+<li>edited file &rarr; edits kept, only the block or hook entry removed</li>
+<li>file setup created &rarr; deleted</li>
+</ul>
+</div>
+<div>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Setup, then revert, then uninstall"><code><span class="cmd"><span class="sig">$</span> declick setup --dry-run
+<span class="sig">$</span> declick setup
+<span class="sig">$</span> declick setup --revert
+<span class="sig">$</span> declick uninstall --yes</span></code></pre>
+<figcaption><span class="cap">Preview, wire it in, undo it, then remove declick's own home directory.</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</div>
+</div>
+</section>
+
 <section class="sec" id="desktop">
 <h2 class="head-gap">Windows apps replay as element paths, not pixels</h2>
 <div class="pane head-gap">
@@ -497,7 +536,7 @@ export async function declick(adapter, verb, args = []) {
 
 <section class="sec" id="commands">
 <h2 class="head-gap">declick honors the contract it compiles</h2>
-<p class="prose head-gap">All 29 commands take <code>--json</code> and return the same envelope. <code>declick commands</code> prints the table as data: every command with its positionals, its flags, whether it mutates, whether it previews, and runnable examples. The shipped declick skill is rendered from that same table, so what an agent reads cannot drift from what the binary does. An agent with only a shell can compile, inspect, run, repair and audit. <code>declick ui</code> serves one page on 127.0.0.1 with the same buttons, for the parts a human should decide.</p>
+<p class="prose head-gap">All 31 commands take <code>--json</code> and return the same envelope. <code>declick commands</code> prints the table as data: every command with its positionals, its flags, whether it mutates, whether it previews, and runnable examples. The shipped declick skill is rendered from that same table, so what an agent reads cannot drift from what the binary does. An agent with only a shell can compile, inspect, run, repair and audit. <code>declick ui</code> serves one page on 127.0.0.1 with the same buttons, for the parts a human should decide.</p>
 <div class="split head-gap">
 <div>
 <figure class="block">
@@ -531,6 +570,8 @@ export async function declick(adapter, verb, args = []) {
 <li>list <span class="dim">every adapter with its engine, verbs and auth keys</span></li>
 <li>status <span class="dim">last run, last error with tree diff, proposals and recipes</span></li>
 <li>doctor <span class="dim">node, home, PATH, deskclaw, claude, vault, engines and their tools</span></li>
+<li>setup <span class="dim">wire declick into the agents on this machine: PATH, adapters, rules, hook; <code>--revert</code> undoes it byte for byte</span></li>
+<li>uninstall <span class="dim">revert setup if it ran, then delete ~/.declick and print the npm rm -g line</span></li>
 <li>auth <span class="dim">which env keys a verb needs, and where each one is read from</span></li>
 <li>engines <span class="dim">the engines this build has, or what one source would compile to</span></li>
 <li>path <span class="dim">where declick keeps adapters, launchers and skills</span></li>
@@ -549,19 +590,19 @@ export async function declick(adapter, verb, args = []) {
 <li>version <span class="dim">the declick and node versions</span></li>
 <li>help <span class="dim">the usage table, or one command row</span></li>
 </ul>
-<p class="note"><code>declick commands --json</code> returns <code>"meta":{"count":29,"truncated":false}</code>.</p>
+<p class="note"><code>declick commands --json</code> returns <code>"meta":{"count":31,"truncated":false}</code>.</p>
 </div>
 </div>
 <figure class="block">
 <pre tabindex="0" role="group" aria-label="First line of declick describe declick"><code><span class="cmd"><span class="sig">$</span> declick describe declick</span>
-<span class="out">declick 0.3.2: turn anything into a CLI so your agents stop clicking</span></code></pre>
+<span class="out">declick 0.4.0: turn anything into a CLI so your agents stop clicking</span></code></pre>
 <figcaption><span class="cap">The first line of the text form.</span><span class="chip">exit 0</span></figcaption>
 </figure>
 </section>
 
 <section class="sec" id="requirements">
-<h2 class="head-gap">What it needs, and what 0.3.2 does not do</h2>
-<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.3.0: chaining verbs, batch <code>--each</code>, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, and per-adapter flag defaults.</p>
+<h2 class="head-gap">What it needs, and what 0.4.0 does not do</h2>
+<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.4.0: chaining verbs, batch <code>--each</code>, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, and per-adapter flag defaults.</p>
 <div class="split head-gap">
 <div>
 <table>
@@ -582,7 +623,7 @@ export async function declick(adapter, verb, args = []) {
 <div>
 <table>
 <thead>
-<tr><th scope="col">not in 0.3.2</th><th scope="col">status</th></tr>
+<tr><th scope="col">not in 0.4.0</th><th scope="col">status</th></tr>
 </thead>
 <tbody>
 <tr><td>chaining verbs</td><td><span class="chip">not shipped</span></td></tr>
@@ -610,14 +651,15 @@ export async function declick(adapter, verb, args = []) {
 </section>
 
 <section class="sec" id="install">
-<h2 class="head-gap">Three commands to a working adapter</h2>
+<h2 class="head-gap">Four commands to a working adapter</h2>
 <div class="pane head-gap">
 <div>
-<p class="prose">Install it, point it at a spec, describe what came out. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.3.2 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
+<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.4.0 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
 </div>
 <div>
 <figure class="block">
-<pre tabindex="0" role="group" aria-label="Install declick and compile the petstore spec"><code><span class="cmd"><span class="sig">$</span> npm i -g declick
+<pre tabindex="0" role="group" aria-label="Install declick, wire it into your agent, and compile the petstore spec"><code><span class="cmd"><span class="sig">$</span> npm i -g declick
+<span class="sig">$</span> declick setup
 <span class="sig">$</span> declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore
 <span class="sig">$</span> declick describe petstore</span>
 <span class="out">petstore (openapi)  source: https://petstore3.swagger.io/api/v3/openapi.json  base: https://petstore3.swagger.io/api/v3
@@ -642,7 +684,7 @@ run: petstore &lt;verb&gt; [args] [--flags]   or: declick run petstore &lt;verb&
 </main>
 <footer>
 <div class="wrap">
-<p>declick 0.3.2. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p>declick 0.4.0. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
 <p class="links no-print"><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a><a href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
 </div>
 </footer>

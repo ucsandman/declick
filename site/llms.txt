@@ -4,7 +4,7 @@
 
 - [Source](https://github.com/ucsandman/declick): the repository
 - [Package](https://www.npmjs.com/package/declick): the published package
-- Install: npm i -g declick (Node 24 or newer)
+- Install: npm i -g declick (Node 24 or newer); declick setup wires it into the agents on the machine (PATH, MCP-server adapters, a rules block, the Claude Code hook); declick setup --revert undoes it byte for byte, and declick uninstall --yes removes it entirely
 - License: 0.3.0 on npm is MIT; releases after it are under the Elastic License 2.0; commercial licenses for teams at https://declick.dev/#license
 - Contract: describe under 500 tokens, --json default when piped, --fields (dotted paths), --limit, --rows, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw (strict by default once DASHCLAW_API_KEY is set), auth by env key name scoped to its adapter's origin, generated SKILL.md per adapter plus one for declick itself
 - Engines, all built in with zero runtime dependencies: openapi (OpenAPI 3 and Swagger 2, JSON or YAML), graphql, mcp (stdio and streamable HTTP), postman (Postman v2.1 and Insomnia v4), har, sqlite (tables/views to list/get/insert/update/delete plus query), cli (compiled from a tool's own --help), web (a real browser over CDP; a miss returns page elements, never a screenshot), desktop (native Windows via deskclaw UI Automation, deterministic recipe replay, authoring and repair through a bounded Claude Code session)
@@ -48,6 +48,6 @@
 - author, repair and add --goal: need the Claude Code CLI on PATH, default timeout 300000 ms.
 - mcp and graphql against a private server read a bearer from <NAME>_TOKEN.
 - declick ui listens on 127.0.0.1 only.
-- Not shipped in 0.3.2: chaining verbs, batch --each, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, per-adapter flag defaults.
+- Not shipped in 0.4.0: chaining verbs, batch --each, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, per-adapter flag defaults.
 
-- [Control matrix](https://declick.dev/controls): the fourteen controls in 0.3.2 and the command that verifies each one
+- [Control matrix](https://declick.dev/controls): the fourteen controls in 0.4.0 and the command that verifies each one

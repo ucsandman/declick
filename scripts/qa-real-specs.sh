@@ -64,6 +64,21 @@ case "$(uname -s)" in
        bad "short form on PATH in a login $(basename "$shell")" "install: $(printf '%s' "$inst" | head -c 200) | shell: $(printf '%s' "$got" | head -c 200) | profile files: ${files:-none}"; fi ;;
 esac
 
+echo "== setup dry-run and round trip"
+CLIENT_HOME="${TMPDIR:-/tmp}/declick-qa-client-$$"; mkdir -p "$CLIENT_HOME/.claude"
+cat > "$CLIENT_HOME/.claude.json" <<EOF
+{"mcpServers":{"qa-notes":{"command":"node","args":["$ROOT/fixtures/mcp-server.mjs"]}}}
+EOF
+export DECLICK_CLIENT_HOME="$CLIENT_HOME"
+expect "setup --dry-run reports the plan" '"wouldBuild"' $D setup --dry-run --no-path --json
+[ -f "$CLIENT_HOME/.claude/CLAUDE.md" ] && bad "setup --dry-run wrote nothing" "CLAUDE.md exists after --dry-run" || ok "setup --dry-run wrote nothing"
+expect "setup adopts the qa-notes server" '"qa-notes"' $D setup --no-path --json
+[ -f "$CLIENT_HOME/.claude/CLAUDE.md" ] && ok "setup wrote the rules block" || bad "setup wrote the rules block" "CLAUDE.md missing"
+expect "setup --revert restores the client home" 'files restored' $D setup --revert --json
+[ -f "$CLIENT_HOME/.claude/CLAUDE.md" ] && bad "setup --revert removed what it created" "CLAUDE.md still there" || ok "setup --revert removed what it created"
+unset DECLICK_CLIENT_HOME
+rm -rf "$CLIENT_HOME"
+
 echo "== node guard"
 expect "Node below 24 is one line, not a stack trace" 'declick needs Node 24 or newer' env DECLICK_NODE_VERSION=18.0.0 $D doctor --json
 

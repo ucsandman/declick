@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 (2026-09-03)
+
+- `declick setup [--dry-run] [--no-adopt] [--no-rules] [--no-hook] [--no-path] [--keep-adapters]`: wires declick into whatever agent is on the machine in one call. Puts `~/.declick/bin` on PATH, builds an adapter for every MCP server it finds in `.claude.json`, `.mcp.json`, installed Claude Code plugins and Codex's `config.toml` (a server needing a bearer it does not have is skipped and named, never dropped silently), adds a `<!-- declick:start -->` / `<!-- declick:end -->` rules block to `CLAUDE.md` or `AGENTS.md` telling the agent to reach for a declick adapter before an MCP call, WebFetch, a browser read or raw curl, and (Claude Code only) installs a PreToolUse hook that nudges the model once per adapter per session. Running it twice is a no-op for the rules block and the hook and rebuilds no adapter already adapted.
+- `declick setup --revert`: undoes exactly what setup did, from a byte-exact snapshot taken under `~/.declick/setup/<timestamp>/` before the first write. A file untouched since setup is restored byte for byte, or deleted if setup created it; a file edited since keeps the edits and loses only the rules block or the hook entry. The snapshot also carries a standalone `revert.mjs`: `node ~/.declick/setup/<timestamp>/revert.mjs` restores files with no dependency on the package, so it still works after `npm rm -g declick`.
+- `declick uninstall [--yes] [--keep-adapters]`: runs a revert if one is available, deletes `~/.declick` entirely, and prints the `npm rm -g declick` line. Refuses without `--yes`, no interactive prompt.
+- `declick doctor` reports `integration`: whether setup has run, whether a revert snapshot is available, which clients have the rules block and the hook, and how many discovered MCP servers are adapted. A `~/.claude` with no rules block gets a warning pointing at `declick setup`, not a blocking failure.
+- The Claude Code hook ships in the package (`src/hooks/declick-nudge.cjs`) and is copied to `~/.declick/hooks/declick-nudge.cjs` by setup; it maps an MCP tool call to its declick adapter through `~/.declick/hooks/servers.json` and never blocks a tool call.
+- New env: `DECLICK_CLIENT_HOME` names the directory the agent clients live under (default `os.homedir()`), so every path setup touches can be redirected. `DECLICK_NUDGE_OFF=1` silences the hook. `DECLICK_PATH_PROFILE` is a test-only override that sends the shell-profile write to a named file instead of the real one.
+
 ## 0.3.2 (2026-09-03)
 
 - A reader that closes the pipe early (`declick add big-spec | head`) gets a clean exit instead of an EPIPE stack trace, from both entry points.

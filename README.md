@@ -15,17 +15,37 @@ Requires Node 24 or newer. An older Node exits 1 with one line naming the versio
 
 ```
 npm i -g declick
+declick setup
 declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore
 declick run petstore describe
 declick run petstore get-user-by-name user1 --fields username,email
 declick run petstore get-pet-by-id 7 --dry-run
 ```
 
-The fourth line is a real call: petstore's user endpoints declare no auth, so the envelope comes back with the row. `get-pet-by-id` declares an API key in the spec, so without `PETSTORE_API_KEY` set it exits 4 and names the key; `--dry-run` shows the request it would send instead.
+`declick setup` puts `~/.declick/bin` on PATH, adopts your agent's existing MCP servers as adapters, adds a rules block to its instruction file, and (Claude Code only) installs a hook that nudges the model toward the adapter; `declick setup --revert` puts everything back byte for byte.
+
+The fifth line is a real call: petstore's user endpoints declare no auth, so the envelope comes back with the row. `get-pet-by-id` declares an API key in the spec, so without `PETSTORE_API_KEY` set it exits 4 and names the key; `--dry-run` shows the request it would send instead.
 
 `declick add` writes three things: `~/.declick/petstore/manifest.json` (the compiled surface), `~/.declick/bin/petstore` (a two line launcher, with a `petstore.cmd` twin on Windows), and a `petstore/SKILL.md` in each agent skills directory it knows about, so agents discover it without being told. It also writes declick's own skill next to it, so an agent that finds one adapter knows how to build the next.
 
 `declick run <name> <verb>` works everywhere with no setup. Once `~/.declick/bin` is on PATH (`declick path --install` does it for new shells, `declick doctor` tells you whether it is), the short form `petstore get-pet-by-id 7` works too. Both forms have identical output and exit codes.
+
+## Set up your agent, and undo it
+
+Integrating declick into an agent by hand means four things. `declick setup` does all four in one call, and `declick setup --dry-run` shows the plan first:
+
+1. **PATH.** The same thing `path --install` does: puts `~/.declick/bin` on PATH for new shells.
+2. **Adopt the agent's MCP servers.** Reads `.claude.json`, `.mcp.json`, installed Claude Code plugins, and Codex's `config.toml`, and builds an adapter for each server it finds, so they get describe, `--fields`, `--limit` and the rest of the contract for free. A server that needs a bearer token it does not have is skipped and named, not silently dropped.
+3. **A rules block.** Adds a fenced block between `<!-- declick:start -->` and `<!-- declick:end -->` markers to `CLAUDE.md` or `AGENTS.md`, telling the agent to reach for a declick adapter before an MCP call, WebFetch, a browser read or raw curl. Running setup again replaces the block in place instead of duplicating it.
+4. **The Claude Code hook.** Registers a PreToolUse hook that nudges the model, once per adapter per session, when it calls an MCP tool or WebFetch that has a declick adapter.
+
+Before any of that writes anything, setup takes a byte-exact snapshot of every file it is about to touch under `~/.declick/setup/<timestamp>/`. `declick setup --revert` reads the latest snapshot and undoes exactly what setup did:
+
+- A file setup touched that you have not edited since is restored byte for byte (or deleted, if setup created it).
+- A file you edited since setup ran keeps your edits; revert removes only the rules block or the hook entry it added, nothing else.
+- A file setup created is deleted.
+
+The snapshot is also standalone: `node ~/.declick/setup/<timestamp>/revert.mjs` restores files with no dependency on the declick package, so it still works after `npm rm -g declick`. `declick uninstall --yes` runs a revert, if one is available, then deletes `~/.declick` entirely and prints the `npm rm -g declick` line.
 
 ## Why
 
@@ -71,7 +91,7 @@ Every generated adapter, and every `declick` command, follows this:
 
 ## Works with any agent
 
-declick is a command line tool, so the integration is the shell. `declick add` writes the adapter's `SKILL.md` into every agent skills directory that exists on the machine. `~/.claude/skills` (Claude Code) is always written; `~/.codex/skills` (Codex), `~/.hermes/skills` (Hermes), `~/.openclaw/skills` (OpenClaw) and `~/.agents/skills` are written when the directory is already there. It never creates a directory for an agent you do not have, and `DECLICK_SKILLS` names any other list, comma separated. An agent without a skills directory reads `declick describe <name>`, or you paste `declick skill <name> --print` into its AGENTS.md or system prompt.
+declick is a command line tool, so the integration is the shell. `declick add` writes the adapter's `SKILL.md` into every agent skills directory that exists on the machine. `~/.claude/skills` (Claude Code) is always written; `~/.codex/skills` (Codex), `~/.hermes/skills` (Hermes), `~/.openclaw/skills` (OpenClaw) and `~/.agents/skills` are written when the directory is already there. It never creates a directory for an agent you do not have, and `DECLICK_SKILLS` names any other list, comma separated. An agent without a skills directory reads `declick describe <name>`, or you paste `declick skill <name> --print` into its AGENTS.md or system prompt. `declick setup` writes more, and only to the clients it finds: Claude Code gets the rules block and the PreToolUse hook, Codex and `~/.agents` get the rules block only, and every other agent gets adapters and skills the way `add` always wrote them.
 
 A custom agent on the Anthropic SDK, the OpenAI SDK, or Anthropic Managed Agents needs one tool: run `declick run <adapter> <verb> [args] --json` and hand back stdout. The envelope is the tool result, the exit code is the status, and `describe --json` is the source for the tool's input schema. Nothing in that loop is specific to a model or a vendor. Governance is optional in the same way: with no DashClaw key set, mutating verbs run and nothing blocks.
 
@@ -147,7 +167,9 @@ An agent with only a shell can do all of this. Every command takes `--json` and 
 
 | Command | What it gives you |
 |---|---|
-| `declick doctor` | node version, home, whether `~/.declick/bin` is on PATH (with the fix), skill dirs, vault, deskclaw presence and arm state, `claude` on PATH, governance config, engine readiness. `blocking` and `warnings` are separate lists and `healthy` is true only when `blocking` is empty, so a fresh home with nothing on PATH is healthy with one warning. Exit 1 only when node is too old. |
+| `declick doctor` | node version, home, whether `~/.declick/bin` is on PATH (with the fix), skill dirs, vault, deskclaw presence and arm state, `claude` on PATH, governance config, engine readiness, and integration state (has `setup` run, which clients have the rules block and hook, how many MCP servers are adapted). `blocking` and `warnings` are separate lists and `healthy` is true only when `blocking` is empty, so a fresh home with nothing on PATH is healthy with one warning. Exit 1 only when node is too old. |
+| `declick setup [--dry-run] [--no-adopt] [--no-rules] [--no-hook] [--no-path] [--revert] [--keep-adapters]` | wire declick into the agents on this machine: PATH, adapters for their MCP servers, a rules block, the Claude Code hook; `--revert` undoes it byte for byte; `--dry-run` previews with no writes |
+| `declick uninstall [--yes] [--keep-adapters]` | revert setup if it ran, then delete `~/.declick` entirely and print the `npm rm -g declick` line; refuses without `--yes`; `--dry-run` lists what would go |
 | `declick list` | every adapter: engine, source, verb names, auth keys, last run, last error. A corrupt manifest is one broken row, not a crash. |
 | `declick describe <n> [--full] [--verb v] [--grep text] [--offset N] [--limit N]` | the surface as text or data, paged instead of printed whole when it is large |
 | `declick manifest <n> [--verb v]` | the compiled contract: http method, path, query, body props, or recipe steps |
@@ -177,7 +199,7 @@ Not yet shipped: compose verbs (chain several verbs into one), `batch --each` (r
 npm test
 ```
 
-Zero runtime dependencies, zero dev dependencies. Tests are `node --test`; 490 pass on 0.3.2. The CI matrix runs `npm test` on Windows, Linux and macOS for every push and pull request.
+Zero runtime dependencies, zero dev dependencies. Tests are `node --test`; 503 pass on 0.4.0. The CI matrix runs `npm test` on Windows, Linux and macOS for every push and pull request.
 
 `npm run qa` (`scripts/qa-real-specs.sh`, bash) is the release gate the suite cannot replace: it compiles six public specs (Stripe JSON and YAML, GitHub, Openverse, api.weather.gov, petstore3 YAML) from their live URLs, makes real keyless calls, checks the exit 4 path, `path --install` in a fresh login shell, the web page refusal, and the Node guard. Run it on Linux and macOS before every tag; `QA_FROM_NPM=1` runs it against the published package instead of the checkout.
 

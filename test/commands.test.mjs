@@ -16,7 +16,7 @@ const rows = J(run(['commands', '--limit', '100'])).data;
 
 test('commands is the whole command surface as data', () => {
   assert.ok(rows.length >= 25, `only ${rows.length} commands`);
-  for (const name of ['add', 'run', 'author', 'repair', 'accept', 'build', 'describe', 'manifest', 'lint', 'list', 'status', 'doctor', 'auth', 'engines', 'path', 'proposals', 'recipes', 'recipe', 'skill', 'remove', 'export', 'import', 'desk', 'ui', 'audit', 'commands', 'version', 'help'])
+  for (const name of ['add', 'run', 'author', 'repair', 'accept', 'build', 'describe', 'manifest', 'lint', 'list', 'status', 'doctor', 'auth', 'engines', 'path', 'setup', 'uninstall', 'proposals', 'recipes', 'recipe', 'skill', 'remove', 'export', 'import', 'desk', 'ui', 'audit', 'commands', 'version', 'help'])
     assert.ok(rows.find(c => c.name === name), `no row for ${name}`);
   for (const c of rows) {
     assert.match(c.usage, new RegExp(`^declick ${c.name}\\b`), c.name);

@@ -86,3 +86,16 @@ Every text field that can come from an untrusted spec or an imported bundle (`so
 | `CHROME` | Browser binary path for the web engine |
 | `DECLICK_LIVE` | Opt in to the desktop and web tests that drive real windows and browsers |
 | `DECLICK_NODE_VERSION` | Overrides the reported Node version, for testing the version gate |
+| `DECLICK_CLIENT_HOME` | Directory the agent clients live under (`~/.claude`, `~/.claude.json`, `~/.codex`, `~/.agents`), default `os.homedir()`. Every path `declick setup` touches derives from it |
+| `DECLICK_NUDGE_OFF` | `1` silences the Claude Code PreToolUse hook `declick setup` installs |
+| `DECLICK_PATH_PROFILE` | Test-only. When set, the shell-profile branch of `path --install` and `declick setup` writes to this file instead of the real shell profile, and the Windows User-PATH branch is skipped |
+
+## Setup snapshot
+
+`declick setup` never writes to a client file before it has copied it. The snapshot lives at `~/.declick/setup/<ISO timestamp, `:` replaced by `-`>/`, and `~/.declick/setup/latest` names the current one. Inside:
+
+- `files/<n>` — an exact byte copy of every file setup is about to modify, for every one that already existed.
+- `manifest.json` — `{ version, at, clientHome, files:[{path, existed, before:sha256|null, after:sha256, copy:'files/<n>'|null}], adapters:[names built by this run], path:{kind:'win-user'|'profile'|null, file, line, added:bool} }`. `before`/`after` are the file's sha256 immediately before and after the run; `copy` is the path under `files/` holding the pre-write byte copy, or `null` when the file did not exist.
+- `revert.mjs` — a standalone copy of the revert logic (node builtins only), which reads the sibling `manifest.json` and performs the same file restores and PATH undo as `declick setup --revert`, so `node ~/.declick/setup/<timestamp>/revert.mjs` works even after `npm rm -g declick`. It does not remove adapters; it prints the `declick remove <name>` lines instead.
+
+`declick setup --revert` reads `~/.declick/setup/latest`, compares each file's current sha256 against the manifest's `after`: unchanged means restore the copy (or delete, if `existed` was false); changed means the file was edited since setup ran, so revert strips only the `<!-- declick:start -->` / `<!-- declick:end -->` block or the hook entry in `settings.json` and leaves the rest of the file alone.
