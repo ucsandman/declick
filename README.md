@@ -1,6 +1,6 @@
 # declick
 
-Turn anything into a CLI so your agents stop clicking.
+Stop writing a parser for every tool your agent calls. declick reads a source once and writes named verbs that return one envelope with five exit codes. Nine engines, zero runtime dependencies, Node 24.
 
 ## Why
 
@@ -195,3 +195,7 @@ declick desk disarm
 Without `DECLICK_LIVE=1` they report as skipped rather than passing on no work.
 
 Env overrides: `DECLICK_HOME` (adapter dir), `DECLICK_SKILLS` (SKILL.md target), `OPENCLAW_SKILLS` (a second SKILL.md target), `DECLICK_DESK` (path to the deskclaw launcher), `DECLICK_CLAUDE` (authoring binary), `DECLICK_AUTHOR` (test double for the authoring binary), `DECLICK_AUTHOR_TIMEOUT_MS`, `CREDS_VAULT` (env file to read key names from), `DASHCLAW_API_KEY`, `DASHCLAW_URL` (required alongside the key, no default), `DASHCLAW_TIMEOUT_MS`, `DECLICK_GUARD` (`strict` or `open`), `DECLICK_AUDIT` (`off` disables the audit log), `DECLICK_ENV_ALLOW` (comma-separated key names allowed to cross origins), `DECLICK_TIMEOUT_MS` (mcp and http client timeout default), `DECLICK_CDP` (attach to a running Chrome/Edge instead of launching one), `CHROME` (browser binary path for the web engine), `DECLICK_LIVE` (opt in to the desktop and web tests that drive real windows/browsers).
+
+## License
+
+0.3.0 on npm is MIT. Releases after 0.3.0 are under the Elastic License 2.0: read it, run it, change it, ship it inside your own product; do not offer it to others as a managed service. Commercial licenses for teams and production support are requested at https://declick.dev.

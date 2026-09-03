@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- License: every release after 0.3.0 is under the Elastic License 2.0 (SPDX `Elastic-2.0`), reproduced in full in `LICENSE`. The source stays public and readable: use it, change it, redistribute it, ship it inside your own product. You may not offer it to others as a managed service. Release 0.3.0 as published on npm was released under the MIT license and stays under it. Commercial licenses for teams and production support: https://declick.dev.
+- `add app:<w> --recipes` runs the launcher and skill preflight before importing recipes, and a fresh adapter directory is rolled back when compile or lint refuses, so a refused add no longer leaves `~/.declick/<name>/recipes/` with no manifest.
+
 ## 0.3.0 (2026-09-02)
 
 - `remove <name> <verb>` now resolves the verb before touching disk: exit 2 for an unknown verb, exit 1 for a spec-backed engine (openapi verbs come from the spec, not per-verb files; rebuild with `--verbs` instead), and `--force` is required to delete the last desktop recipe (it would otherwise delete the whole adapter silently). The response for the last-verb case carries `adapterRemoved: true`.
