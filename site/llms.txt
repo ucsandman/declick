@@ -1,10 +1,11 @@
 # declick
 
-> Turn anything into a CLI so your agents stop clicking. declick compiles an OpenAPI/Swagger spec, a GraphQL API, an MCP server, a Postman/Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, or a native Windows app into a command line tool with one guaranteed output contract, and every declick command honors that contract too.
+> Turn anything into a CLI so your agents stop clicking. declick compiles any of nine sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, or a native Windows window, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 29 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
 
-- Source: https://github.com/ucsandman/declick
-- Package: https://www.npmjs.com/package/declick
+- [Source](https://github.com/ucsandman/declick): the repository
+- [Package](https://www.npmjs.com/package/declick): the published package
 - Install: npm i -g declick (Node 24 or newer)
+- License: 0.3.0 on npm is MIT; releases after it are under the Elastic License 2.0; commercial licenses for teams at https://declick.dev/#license
 - Contract: describe under 500 tokens, --json default when piped, --fields (dotted paths), --limit, --rows, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw (strict by default once DASHCLAW_API_KEY is set), auth by env key name scoped to its adapter's origin, generated SKILL.md per adapter plus one for declick itself
 - Engines, all built in with zero runtime dependencies: openapi (OpenAPI 3 and Swagger 2, JSON or YAML), graphql, mcp (stdio and streamable HTTP), postman (Postman v2.1 and Insomnia v4), har, sqlite (tables/views to list/get/insert/update/delete plus query), cli (compiled from a tool's own --help), web (a real browser over CDP; a miss returns page elements, never a screenshot), desktop (native Windows via deskclaw UI Automation, deterministic recipe replay, authoring and repair through a bounded Claude Code session)
 - declick engines --source <x> says which engine a source would land on before anything is written
@@ -14,7 +15,7 @@
 - declick add <source> --name <n> [--verbs a,b | --tag t] [--engine e] [--host h] [--url u]   compile any source above into an adapter
 - declick run <n> <verb> [args] [--flags]   invoke a verb; also <n> <verb> once ~/.declick/bin is on PATH (declick path --install)
 - declick describe <n> [--full] [--verb v] [--grep text] [--offset N]   the surface; --json for data. declick manifest <n> [--schema] for the full compiled contract
-- declick list | status [<n>] | doctor | auth <n> | engines [--source x] | version | commands | <cmd> --help   inventory, last run and error, health, missing keys, the whole command surface as data
+- declick list | status [<n>] | doctor | auth <n> | engines [--source x] | path [--install] | version | commands | <cmd> --help   inventory, last run and error, health, missing keys, PATH state, the whole command surface as data
 - declick add app:"Title" --name <n> --goal "..." --verb v   Claude authors a desktop verb (declick desk arm 15 first)
 - declick author <n> --goal "..." | repair <n> <verb> | proposals <n> | accept <n> <verb> | recipes <n> | recipe <n> <verb>
 - declick build <n> | lint <n> | skill [<n>] | remove <n> [<verb>] | export <n> | import [<file>|-] [--example]
@@ -29,3 +30,23 @@
 - Failure: {"ok":false,"error":"...","exit":N}   plus "data" when the engine has a payload
 - Flags: --flag value and --flag=value; boolean flags never eat the next argument; unknown flags are exit 1
 - Adapters live at ~/.declick/<n>/manifest.json; skills at ~/.claude/skills/<n>/SKILL.md; never edit either by hand
+
+## Governance
+
+- Opt in: set DASHCLAW_API_KEY and DASHCLAW_URL. Unset, a mutating call prints one warning line and proceeds, and meta.governance.enabled reads false.
+- Set, strict is the default: a guard that is unreachable, times out, or answers anything but a decision is exit 3. DECLICK_GUARD=open restores warn-and-proceed on a guard failure; a block or require_approval the guard actually returns is refused either way.
+- Every invocation appends one line to ~/.declick/audit.jsonl; declick audit reads it newest first. DECLICK_AUDIT=off turns the log off.
+- A key is scoped to the origin the adapter was built against; a request to another host does not get it, exit 4, unless the name is listed in DECLICK_ENV_ALLOW, or the origin change is explicit on the command line via --base-url, which warns and records scopedTo and sentTo in meta.credentials.
+
+## Requirements
+
+- Node 24 or newer; declick doctor checks it and keeps blocking problems separate from warnings.
+- Desktop engine: Windows only, needs deskclaw 0.3.0 or newer on PATH.
+- Web engine: needs Chrome or Edge.
+- cli engine: needs the target binary on PATH.
+- author, repair and add --goal: need the Claude Code CLI on PATH, default timeout 300000 ms.
+- mcp and graphql against a private server read a bearer from <NAME>_TOKEN.
+- declick ui listens on 127.0.0.1 only.
+- Not shipped in 0.3.0: chaining verbs, batch --each, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, per-adapter flag defaults.
+
+- [Control matrix](https://declick.dev/controls): the fourteen controls in 0.3.0 and the command that verifies each one

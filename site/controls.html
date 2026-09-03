@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>declick 0.3.0 control matrix: what an agent cannot do</title>
+<meta name="description" content="Fourteen controls in declick 0.3.0, the mechanism behind each one, and the command that verifies it. Ten need no configuration.">
+<link rel="canonical" href="https://declick.dev/controls">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://declick.dev/controls">
+<meta property="og:title" content="declick 0.3.0 control matrix">
+<meta property="og:description" content="Fourteen controls in declick 0.3.0, the mechanism behind each one, and the command that verifies it. Ten need no configuration.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="declick 0.3.0 control matrix">
+<meta name="twitter:description" content="Fourteen controls in declick 0.3.0, the mechanism behind each one, and the command that verifies it. Ten need no configuration.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/">Return to the declick overview</a></p>
+<h1 class="head-gap">declick 0.3.0 control matrix</h1>
+<p class="prose head-gap">Every control below is in the shipped runtime. The verification column is the command that demonstrates it, run against an adapter you build yourself. Controls that need configuration do nothing until the named environment variables are set, and they sit in their own table so the unconditional set can be reviewed alone. This page prints to five pages on A4 and on Letter.</p>
+<p class="facts"><span>version <b>0.3.0</b></span><span>node <b>&gt;=24</b></span><span>license <b>MIT</b></span><span>runtime dependencies <b>0</b></span></p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="cmd"><span class="sig">$</span> declick version --json</span>
+<span class="out">{"ok":true,"data":{"version":"0.3.0","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
+<figcaption><span class="cap"><code>declick version --json</code></span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="no-configuration">
+<h2 class="head-gap">Controls active with no configuration</h2>
+<p class="prose head-gap">Ten controls, each with the mechanism, the observable result, and the command that shows it. Nothing in this table depends on a network service, a policy file, or a subscription. Exit codes are stable across all nine engines, so a pipeline can treat exit 3 as blocked and exit 4 as missing credentials without knowing which engine produced the adapter.</p>
+<table>
+<thead>
+<tr><th scope="col">ID</th><th scope="col">Control</th><th scope="col">Mechanism</th><th scope="col">Observable</th><th scope="col">Verify with</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>C-01</code></td>
+<td>credential origin scoping</td>
+<td>key released only to the origin the adapter was built against</td>
+<td>exit 4 naming the scoped origin</td>
+<td><code>DECLICK_&lt;NAME&gt;_BASE_URL=https://other.example declick run &lt;name&gt; &lt;verb&gt;</code></td>
+</tr>
+<tr>
+<td><code>C-02</code></td>
+<td>secret masking</td>
+<td>header and query values replaced by env names in <code>--curl</code> and <code>--verbose</code></td>
+<td><code>api_key: &lt;NAME_API_KEY&gt;</code></td>
+<td><code>declick run &lt;name&gt; &lt;verb&gt; --curl</code></td>
+</tr>
+<tr>
+<td><code>C-03</code></td>
+<td>manifest stores key names only</td>
+<td>values read from <code>process.env</code> then <code>~/.creds/vault.env</code> at run time</td>
+<td>no value in <code>~/.declick/&lt;name&gt;/manifest.json</code></td>
+<td><code>declick manifest &lt;name&gt;</code></td>
+</tr>
+<tr>
+<td><code>C-04</code></td>
+<td>launcher shadow refusal</td>
+<td><code>add</code> refuses a name that resolves on PATH unless <code>--force</code></td>
+<td>exit 1 naming the existing binary</td>
+<td><code>declick add app:Calculator --name calc</code></td>
+</tr>
+<tr>
+<td><code>C-05</code></td>
+<td>unknown-flag rejection</td>
+<td>flags checked against the manifest before the request is built</td>
+<td>exit 1 with did-you-mean</td>
+<td><code>declick run &lt;name&gt; &lt;verb&gt; --nope</code></td>
+</tr>
+<tr>
+<td><code>C-06</code></td>
+<td>manifest text validation</td>
+<td>spec-sourced text must be one line, no backticks, no leading #, bounded length; describe sanitizes on output</td>
+<td>exit 1 from lint</td>
+<td><code>declick lint &lt;name&gt;</code></td>
+</tr>
+<tr>
+<td><code>C-07</code></td>
+<td>audit log on by default</td>
+<td>one line per invocation to <code>~/.declick/audit.jsonl</code></td>
+<td>newest-first listing</td>
+<td><code>declick audit</code></td>
+</tr>
+<tr>
+<td><code>C-08</code></td>
+<td>ui token</td>
+<td>random per-start <code>X-Declick-Token</code> required on every mutating POST</td>
+<td>401 without it</td>
+<td><code>declick ui --port 4899 --json</code></td>
+</tr>
+<tr>
+<td><code>C-09</code></td>
+<td>ui Host and Origin check</td>
+<td>requests from another origin refused; authoring 403 without <code>--allow-authoring</code></td>
+<td>403</td>
+<td><code>curl -X POST -H 'Origin: http://evil' -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:4870/api/add</code></td>
+</tr>
+<tr>
+<td><code>C-10</code></td>
+<td>desktop arming and STOP file</td>
+<td>acting calls refused unless armed and no STOP file</td>
+<td>exit 3</td>
+<td><code>declick desk status</code></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+<section class="sec" id="configuration-required">
+<h2 class="head-gap">Controls requiring configuration</h2>
+<table>
+<thead>
+<tr><th scope="col">ID</th><th scope="col">Control</th><th scope="col">Mechanism</th><th scope="col">Observable</th><th scope="col">Verify with</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>C-11</code></td>
+<td>guard on every mutating call</td>
+<td><code>DASHCLAW_API_KEY</code>, <code>DASHCLAW_URL</code></td>
+<td>decision in <code>meta.governance</code></td>
+<td><code>declick run &lt;name&gt; &lt;mutating verb&gt;</code></td>
+</tr>
+<tr>
+<td><code>C-12</code></td>
+<td>strict fail-closed</td>
+<td>same variables</td>
+<td>exit 3 on unreachable, timeout, or non-decision; <code>DECLICK_GUARD=open</code> restores warn</td>
+<td><code>DASHCLAW_API_KEY=test-key DASHCLAW_URL=http://127.0.0.1:9 declick run &lt;name&gt; &lt;mutating verb&gt;</code></td>
+</tr>
+<tr>
+<td><code>C-13</code></td>
+<td>arg redaction before transmission</td>
+<td>same variables</td>
+<td>secret-shaped args become <code>&lt;redacted&gt;</code>, others truncated at 64 chars</td>
+<td><code>declick run &lt;name&gt; &lt;mutating verb&gt; --verbose</code></td>
+</tr>
+<tr>
+<td><code>C-14</code></td>
+<td>authoring sandbox</td>
+<td>Claude Code CLI on PATH; <code>DECLICK_AUTHOR_TIMEOUT_MS</code></td>
+<td>allowlisted environment, no <code>ANTHROPIC_API_KEY</code>, bounded at 300000 ms</td>
+<td><code>declick add app:&lt;title&gt; --goal "..." --verb v</code></td>
+</tr>
+</tbody>
+</table>
+<p class="note">Every command in the verify column is a real command from <code>commands --json</code> or the README; placeholders in angle brackets are the reader's own adapter.</p>
+</section>
+
+<section class="sec" id="appendix">
+<h2 class="head-gap">Exit codes, envelope fields, and files on disk</h2>
+<p class="prose head-gap">Three reference lists. Exit codes: 0 ok, 1 error, 2 not found, 3 blocked, 4 auth needed. Every adapter envelope carries <code>meta.governance</code> with enabled, decision and reason, <code>meta.dryRun</code> true on a preview, and <code>meta.credentials</code> when a key was read or crossed an origin. On disk, declick writes <code>~/.declick/&lt;name&gt;/manifest.json</code>, <code>~/.declick/&lt;name&gt;/recipes/</code>, <code>~/.declick/&lt;name&gt;/proposals/</code>, <code>~/.declick/&lt;name&gt;/last-error.json</code>, <code>~/.declick/bin/</code> for launchers, <code>~/.declick/audit.jsonl</code> for the log, and <code>~/.claude/skills/&lt;name&gt;/SKILL.md</code> for agent discovery. It never overwrites a <code>SKILL.md</code> it did not write.</p>
+<div class="split">
+<div>
+<h3 class="head-gap">Exit codes</h3>
+<dl class="deflist">
+<dt><span class="chip">exit 0</span></dt>
+<dd>ok</dd>
+<dt><span class="chip chip--hot">exit 1</span></dt>
+<dd>error</dd>
+<dt><span class="chip chip--hot">exit 2</span></dt>
+<dd>not found</dd>
+<dt><span class="chip chip--hot">exit 3</span></dt>
+<dd>blocked</dd>
+<dt><span class="chip chip--hot">exit 4</span></dt>
+<dd>auth needed</dd>
+</dl>
+</div>
+<div>
+<h3 class="head-gap">Envelope fields</h3>
+<dl class="deflist">
+<dt>meta.governance</dt>
+<dd>enabled, decision and reason, on every adapter envelope.</dd>
+<dt>meta.dryRun</dt>
+<dd>true on a preview.</dd>
+<dt>meta.credentials</dt>
+<dd>present when a key was read or crossed an origin. From this session's capture: <code>{"name":"PETSTORE_API_KEY","from":"env"}</code>. The documented four-field form <code>{name, from, scopedTo, sentTo}</code> appears when <code>DECLICK_ENV_ALLOW</code> releases a key across origins.</dd>
+</dl>
+</div>
+</div>
+<h3 class="head-gap">Files on disk</h3>
+<dl class="deflist">
+<dt>~/.declick/&lt;name&gt;/manifest.json</dt>
+<dd>the compiled manifest</dd>
+<dt>~/.declick/&lt;name&gt;/recipes/</dt>
+<dd>the recipes for the adapter</dd>
+<dt>~/.declick/&lt;name&gt;/proposals/</dt>
+<dd>proposals from authoring</dd>
+<dt>~/.declick/&lt;name&gt;/last-error.json</dt>
+<dd>the last error</dd>
+<dt>~/.declick/bin/</dt>
+<dd>launchers</dd>
+<dt>~/.declick/audit.jsonl</dt>
+<dd>the log</dd>
+<dt>~/.claude/skills/&lt;name&gt;/SKILL.md</dt>
+<dd>agent discovery. declick never overwrites a SKILL.md it did not write.</dd>
+</dl>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.3.0. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="/">Return to the declick overview</a><a href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
+</div>
+</footer>
+</body>
+</html>

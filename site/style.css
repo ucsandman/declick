@@ -1,0 +1,495 @@
+/* declick.dev shared stylesheet. Two routes, no build step, no JavaScript.
+   Order: webfonts, tokens, light override, base, layout, components, states, reduced motion, print. */
+
+/* ---------- webfonts (self-hosted, see docs/DESIGN.md) ---------- */
+
+/* Google serves one variable woff2 per family for the latin subset, so the three
+   weights this page uses are one file and one request each. The unicode-range is
+   the latin range from the Google Fonts css2 response, kept verbatim. */
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url('/fonts/archivo-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Spline Sans Mono";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('/fonts/spline-sans-mono-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---------- tokens (dark is the canonical theme) ---------- */
+:root {
+  color-scheme: dark light;
+  --sans: "Archivo", "Archivo Metrics", "Segoe UI", system-ui, sans-serif;
+  --mono: "Spline Sans Mono", ui-monospace, Consolas, monospace;
+  --bg: #0f1115;
+  --bg-2: #14171d;
+  --code: #161920;
+  --fg: #f2ede4;
+  --dim: #a29a8c;
+  --accent: #ffb454;
+  --accent-ink: #ffb454;
+  --line: #2b2f38;
+  --line-strong: #3b414d;
+  --chip-line: #616a79;
+  --link: var(--accent);
+  --link-active: #e8a340;
+  --focus: var(--accent);
+  --plate-ink: #0f1115;
+  --plate-line: var(--accent);
+  --btn-hover: #ffc47a;
+  --btn-active: #e8a340;
+  --chip-hot-bg: transparent;
+  --chip-hot-fg: var(--accent);
+  --chip-hot-border: var(--accent);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---------- light override: tokens only, no toggle, no script ---------- */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --bg-2: #f4f2ec;
+    --code: #f4f2ec;
+    --fg: #17191d;
+    --dim: #56595f;
+    --accent: #ffb454;
+    --accent-ink: #8a4b04;
+    --line: #dcd8d0;
+    --line-strong: #b9b2a6;
+    --chip-line: #8f8778;
+    --link: var(--accent-ink);
+    --link-active: #6f3c03;
+    --focus: var(--accent-ink);
+    --plate-ink: #17191d;
+    --plate-line: #8a4b04;
+    --btn-hover: #f0a63f;
+    --btn-active: #dd9730;
+    --chip-hot-bg: var(--accent);
+    --chip-hot-fg: #17191d;
+    --chip-hot-border: var(--plate-line);
+  }
+}
+
+/* ---------- base ---------- */
+
+/* Not a third typeface: this remaps the fallback already named in --sans so it
+   occupies Archivo's space. Segoe UI sets 1.03% wider than Archivo, which is
+   one extra line in the 19px lead at a 412px viewport, so the whole hero jumps
+   up when the webfont swaps in. Measured on the shipped page: cumulative layout
+   shift 0.207 before, 0.046 after. Where Segoe UI is not installed the source
+   is unavailable, the family is skipped, and the stack falls through unchanged. */
+@font-face {
+  font-family: "Archivo Metrics";
+  src: local("Segoe UI"), local("SegoeUI");
+  size-adjust: 98.98%;
+  ascent-override: 88.91%;
+  descent-override: 21.22%;
+  line-gap-override: 0%;
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 400 16px/1.6 var(--sans);
+}
+
+h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: 32px; line-height: 1.1; font-weight: 700; }
+h2 { font-size: 24px; line-height: 1.2; font-weight: 500; }
+h3 { font-size: 18px; line-height: 1.3; font-weight: 500; }
+
+p { margin: 16px 0 0; }
+p:first-child { margin-top: 0; }
+
+a { color: var(--link); text-decoration: none; }
+
+code, pre, kbd { font-family: var(--mono); }
+code { font-size: 0.92em; }
+
+ul { margin: 0; padding: 0; list-style: none; }
+
+figure { margin: 0; }
+
+/* ---------- layout ---------- */
+.wrap {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.sec { padding: 64px 0 0; }
+.sec:nth-of-type(odd) { padding-top: 96px; }
+.sec.sec--hero { padding-top: 48px; }
+
+/* the hero h1 is a sibling of .pane, not a cell in it, so it sets across the whole
+   1120px column and wraps to two lines instead of four in a 5fr track. .lead is then
+   the first child of its cell, so its 16px top margin is dropped and this replaces it. */
+.sec--hero > h1 { margin-bottom: 16px; }
+
+/* the two /controls tables read as one pair, so no wide gap between them */
+.sec#configuration-required { padding-top: 64px; }
+
+.prose { max-width: 68ch; }
+
+.pane,
+.split { display: grid; gap: 32px; }
+
+/* without this the tracks size to the min-content width of the mono block inside them
+   and overflow-x on .block pre never engages, so the page body scrolls sideways */
+.pane > *,
+.split > * { min-width: 0; }
+
+.stack-32 > * + * { margin-top: 32px; }
+
+.head-gap { margin-bottom: 24px; }
+
+@media (min-width: 900px) {
+  .wrap { padding: 0 32px; }
+  .skip { left: 32px; }
+  h1 { font-size: 44px; }
+  .sec--hero > h1 { margin-bottom: 24px; }
+  h2 { font-size: 26px; }
+  .pane { grid-template-columns: 5fr 7fr; gap: 48px; align-items: start; }
+  .pane > div > .prose:first-child { padding-top: 16px; }
+  .split { grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+}
+
+/* ---------- components ---------- */
+
+/* mono block: figure > pre > code, with the rule and exit chip under it */
+.block { margin: 0; }
+
+.block pre {
+  margin: 0;
+  padding: 16px;
+  background: var(--code);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  overflow-x: auto;
+  white-space: pre;
+  tab-size: 8;
+  font: 400 13px/1.55 var(--mono);
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* code inherits inside a mono block: the 0.92em inline-code step must not
+   shrink block output below the 12.5px floor */
+pre code { font-size: inherit; }
+
+@media (max-width: 639px) {
+  .block pre { font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+
+.block figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.block figcaption .cap { flex: 1 1 12ch; }
+.block figcaption .chip { margin-left: auto; }
+
+/* label above a block, sentence case, in Archivo */
+.block figcaption.lab {
+  margin: 0 0 8px;
+  padding: 0;
+  border-top: 0;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* command and output lines inside a block */
+.cmd { color: var(--fg); font-weight: 500; }
+.out { color: var(--dim); font-weight: 400; }
+.sig { color: var(--link); font-weight: 500; }
+
+/* the one signature token */
+.chip {
+  display: inline-block;
+  padding: 4px 8px;
+  border: 1px solid var(--chip-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--dim);
+  font: 500 11px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chip--hot {
+  border-color: var(--chip-hot-border);
+  background: var(--chip-hot-bg);
+  color: var(--chip-hot-fg);
+}
+
+/* tables: horizontal rules only, no zebra, no outer box */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+th, td {
+  padding: 12px 16px 12px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+th {
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+td:last-child, th:last-child { padding-right: 0; }
+td code, th code { overflow-wrap: anywhere; }
+/* the control ids are the reference scheme a reviewer quotes back, so they never break */
+td:first-child code, th:first-child code { overflow-wrap: normal; white-space: nowrap; }
+
+@media (max-width: 480px) {
+  th, td { padding-right: 8px; overflow-wrap: anywhere; }
+  /* at this width a long literal in a sentence has nowhere else to go */
+  .prose code { overflow-wrap: anywhere; }
+}
+
+/* ruled lists */
+.ruled > li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+.ruled--mono > li { font-family: var(--mono); font-size: 13px; }
+.ruled--mono code, .vocab code { font-size: inherit; }
+
+.cols { columns: 2; column-gap: 32px; }
+.cols > li { break-inside: avoid; }
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.facts b { color: var(--fg); font-weight: 500; }
+
+.vocab {
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+}
+
+/* definition lists on /controls */
+.deflist { margin: 0; }
+.deflist dt, .deflist dd, .deflist code { overflow-wrap: anywhere; }
+.deflist dt {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.deflist dd {
+  margin: 4px 0 12px;
+  font-size: 14px;
+  color: var(--dim);
+}
+
+.install-line {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  color: var(--fg);
+}
+
+.lead { font-size: 19px; line-height: 1.5; color: var(--fg); }
+.note { color: var(--dim); font-size: 14px; }
+.dim { color: var(--dim); }
+
+.links { display: flex; flex-wrap: wrap; gap: 24px; }
+/* the in-page anchor row under the hero */
+.secnav { margin-top: 24px; border-top: 1px solid var(--line); gap: 4px 20px; font-size: 15px; }
+.links a { padding: 11px 0; }
+.links a::after { bottom: 11px; }
+
+.btn {
+  display: inline-block;
+  padding: 16px 24px;
+  border: 1px solid var(--plate-line);
+  border-radius: 0;
+  background: var(--accent);
+  color: var(--plate-ink);
+  font: 500 16px/1 var(--sans);
+  transition: transform 160ms var(--ease), background-color 160ms var(--ease);
+}
+
+/* the secondary action: the same plate, outlined instead of filled */
+.btn--ghost {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--fg);
+}
+
+/* a primary and a secondary side by side, wrapping to a stack when the column is narrow */
+.btns { display: flex; flex-wrap: wrap; gap: 16px; }
+
+.skip {
+  position: absolute;
+  left: 24px;
+  top: 0;
+  z-index: 2;
+  padding: 12px 16px;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  transform: translateY(-200%);
+  transition: transform 160ms var(--ease);
+}
+
+footer {
+  margin-top: 96px;
+  padding: 32px 0 48px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 14px;
+}
+
+footer p { margin: 0 0 16px; }
+
+/* ---------- states ---------- */
+a:not(.btn):not(.skip) {
+  position: relative;
+  display: inline-block;
+}
+
+a:not(.btn):not(.skip)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 160ms var(--ease);
+}
+
+a:not(.btn):not(.skip):hover::after { transform: scaleX(1); }
+a:not(.btn):not(.skip):active { color: var(--link-active); }
+
+.btn:hover { background: var(--btn-hover); transform: translateY(-1px); }
+.btn:active { background: var(--btn-active); transform: translateY(0); }
+.btn--ghost:hover { background: var(--bg-2); border-color: var(--fg); }
+.btn--ghost:active { background: var(--bg-2); border-color: var(--fg); }
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 0;
+}
+
+.skip:focus { transform: translateY(0); }
+
+/* ---------- reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+  a:not(.btn):not(.skip)::after { transform: scaleX(1); }
+}
+
+/* ---------- print ---------- */
+@media print {
+  :root {
+    --bg: #ffffff;
+    --bg-2: #ffffff;
+    --code: #ffffff;
+    --fg: #000000;
+    --dim: #333333;
+    --line: #999999;
+    --line-strong: #444444;
+    --link: #000000;
+    --chip-hot-bg: transparent;
+    --chip-hot-fg: #000000;
+    --chip-hot-border: #444444;
+  }
+
+  @page { margin: 14mm; }
+
+  body { background: #ffffff; color: #000000; font-size: 10pt; }
+  .wrap { max-width: none; padding: 0; }
+  .sec, .sec:nth-of-type(odd) { padding-top: 24px; }
+  h1 { font-size: 20pt; }
+  h2 { font-size: 13pt; }
+
+  .block pre {
+    background: transparent;
+    border: 1px solid #999999;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 8pt;
+  }
+
+  .chip { border-color: #444444; color: #000000; }
+
+  a:not(.btn):not(.skip)[href^="http"]::after,
+  a:not(.btn):not(.skip)[href^="/"]::after {
+    content: " (" attr(href) ")";
+    position: static;
+    height: auto;
+    background: none;
+    transform: none;
+    font-size: 8pt;
+  }
+
+  .no-print, .skip { display: none; }
+
+  tr, pre, figure, .deflist dt, .deflist dd { page-break-inside: avoid; break-inside: avoid; }
+  thead { display: table-header-group; }
+}
