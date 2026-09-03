@@ -1,0 +1,9 @@
+{
+  "description": "List the catalogue items on the page",
+  "args": [],
+  "steps": [
+    { "goto": "/" },
+    { "read-all": "#items li", "as": "items", "fields": { "sku": "@data-sku", "name": ".name", "price": ".price", "href": "a.more@href" } }
+  ],
+  "returns": "items"
+}

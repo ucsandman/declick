@@ -66,3 +66,70 @@ test('recipe verbs must be kebab-case', () => {
   assert.throws(() => saveRecipe('calc', 'Bad Verb', add), e => e.exit === 1 && /verb/.test(e.message));
   assert.throws(() => loadRecipe('calc', '../escape'), e => e.exit === 1 && /verb/.test(e.message));
 });
+
+const base = steps => ({ description: 'd', args: [], steps });
+const errsOf = steps => validateStoredRecipe(base(steps));
+const find = { find: ['Group:Number pad', 'Button:Seven'], as: 'seven' };
+
+test('validateStoredRecipe accepts the 0.3 step vocabulary', () => {
+  assert.deepEqual(validateStoredRecipe({
+    description: 'd', args: [], mutating: true,
+    launch: { command: 'calc.exe', args: [], waitForWindow: 'Calculator', timeout: 8000 },
+    steps: [
+      { window: 'Calculator' }, { launch: { command: 'calc.exe' } }, find,
+      { read: 'seven', prop: 'value', as: 'v' }, { 'read-all': ['List:History', 'ListItem:*'], as: 'rows', fields: { answer: 'Text:Answer' } },
+      { 'wait-for': ['Text:Display is *'], timeout: 3000 }, { 'wait-for-text': { as: 'seven', text: 'Seven' } },
+      { scroll: 'seven' }, { expand: 'seven' }, { collapse: 'seven' }, { select: 'seven' }, { context: 'seven' },
+      { set: ['seven', 'on'] }, { assert: { as: 'seven', prop: 'name', equals: 'Seven' } },
+      { clipboard: 'get', as: 'clip' }, { clipboard: 'set', text: 'hi' }, { dismiss: true },
+      { click: 'seven', optional: true },
+    ], returns: 'rows',
+  }), []);
+});
+test('validateStoredRecipe rejects a malformed read-all', () => {
+  assert.ok(errsOf([find, { 'read-all': ['ListItem:*'] }]).some(e => /as/.test(e)));
+  assert.ok(errsOf([{ 'read-all': 'ListItem:*', as: 'r' }]).some(e => /Type:Name/.test(e)));
+  assert.ok(errsOf([{ 'read-all': ['ListItem:*'], as: 'r', fields: ['a'] }]).some(e => /fields/.test(e)));
+  assert.ok(errsOf([{ 'read-all': ['ListItem:*'], as: 'r', fields: { a: 'noColon' } }]).some(e => /fields/.test(e)));
+});
+test('validateStoredRecipe rejects a bad read prop', () => {
+  assert.ok(errsOf([find, { read: 'seven', prop: 'colour', as: 'v' }]).some(e => /prop/.test(e)));
+  assert.deepEqual(errsOf([find, { read: 'seven', prop: 'toggle', as: 'v' }]), []);
+});
+test('validateStoredRecipe checks the new acting steps name an earlier find', () => {
+  for (const k of ['scroll', 'expand', 'collapse', 'select', 'context']) {
+    assert.ok(errsOf([{ [k]: 'ghost' }]).some(e => /ghost/.test(e)), k);
+  }
+  assert.ok(errsOf([{ set: ['ghost', 'on'] }]).some(e => /ghost/.test(e)));
+  assert.ok(errsOf([find, { set: ['seven', 'maybe'] }]).some(e => /on\|off|on, off/.test(e)));
+});
+test('validateStoredRecipe checks wait-for, wait-for-text, assert, clipboard, dismiss and launch', () => {
+  assert.ok(errsOf([{ 'wait-for': 'Text:x' }]).some(e => /Type:Name/.test(e)));
+  assert.ok(errsOf([{ 'wait-for': ['Text:x'], timeout: 'soon' }]).some(e => /timeout/.test(e)));
+  assert.ok(errsOf([{ 'wait-for-text': { text: '' } }]).some(e => /text/.test(e)));
+  assert.ok(errsOf([{ 'wait-for-text': { as: 'ghost', text: 'x' } }]).some(e => /ghost/.test(e)));
+  assert.ok(errsOf([find, { assert: { as: 'seven' } }]).some(e => /equals/.test(e)));
+  assert.ok(errsOf([{ assert: { as: 'ghost', equals: 'x' } }]).some(e => /ghost/.test(e)));
+  assert.ok(errsOf([find, { assert: { as: 'seven', matches: '([' } }]).some(e => /regex/.test(e)));
+  assert.ok(errsOf([{ clipboard: 'get' }]).some(e => /as/.test(e)));
+  assert.ok(errsOf([{ clipboard: 'set' }]).some(e => /text/.test(e)));
+  assert.ok(errsOf([{ clipboard: 'paste', as: 'x' }]).some(e => /get/.test(e)));
+  assert.ok(errsOf([{ dismiss: 'yes' }]).some(e => /dismiss/.test(e)));
+  assert.ok(errsOf([{ launch: { args: [] } }]).some(e => /command/.test(e)));
+  assert.ok(errsOf([{ launch: { command: 'x', args: 'y' } }]).some(e => /args/.test(e)));
+  assert.ok(errsOf([{ launch: { command: '{{app}}' } }]).some(e => /literal/.test(e)));
+});
+test('validateStoredRecipe lets returns name a read-all or a clipboard read', () => {
+  assert.deepEqual(validateStoredRecipe({ ...base([{ 'read-all': ['ListItem:*'], as: 'rows' }]), returns: 'rows' }), []);
+  assert.deepEqual(validateStoredRecipe({ ...base([{ clipboard: 'get', as: 'clip' }]), returns: 'clip' }), []);
+  assert.ok(validateStoredRecipe({ ...base([find]), returns: 'seven' }).some(e => /read/.test(e)));
+});
+test('validateStoredRecipe checks a top-level launch block', () => {
+  assert.ok(validateStoredRecipe({ ...base([find]), launch: { command: '' } }).some(e => /launch: command/.test(e)));
+  assert.deepEqual(validateStoredRecipe({ ...base([find]), launch: { command: 'calc.exe' } }), []);
+});
+test('optional is a modifier, not a step of its own', () => {
+  assert.deepEqual(errsOf([{ ...find, optional: true }]), []);
+  assert.ok(errsOf([{ optional: true }]).some(e => /unknown step/.test(e)));
+  assert.ok(errsOf([{ ...find, optional: 'yes' }]).some(e => /optional/.test(e)));
+});

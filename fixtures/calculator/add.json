@@ -1,14 +1,19 @@
 {
   "description": "Add two digits and read the display",
-  "args": [{ "name": "a" }, { "name": "b" }],
+  "args": [
+    { "name": "a", "example": "Seven", "enum": ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"] },
+    { "name": "b", "example": "Seven", "enum": ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"] }
+  ],
   "mutating": true,
+  "launch": { "command": "calc.exe", "waitForWindow": "Calculator", "timeout": 15000 },
   "steps": [
     { "window": "Calculator" },
+    { "wait-for": ["Text:Display is *"], "timeout": 5000 },
     { "find": ["Group:Number pad", "Button:{{a}}"], "as": "first" }, { "click": "first" },
     { "find": ["Group:Standard operators", "Button:Plus"], "as": "plus" }, { "click": "plus" },
     { "find": ["Group:Number pad", "Button:{{b}}"], "as": "second" }, { "click": "second" },
     { "find": ["Group:Standard operators", "Button:Equals"], "as": "eq" }, { "click": "eq" },
-    { "find": ["Text:Display is *"], "as": "display" }, { "read": "display", "as": "result" }
+    { "find": ["Text:Display is *"], "as": "display" }, { "read": "display", "prop": "name", "as": "result" }
   ],
   "returns": "result",
   "tree": ["Group:Number pad", "Button:Seven", "Group:Standard operators", "Button:Plus", "Button:Equals"]

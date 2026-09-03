@@ -1,0 +1,161 @@
+{
+  "data": {
+    "__schema": {
+      "queryType": {"name":"Query"},
+      "mutationType": {"name":"Mutation"},
+      "subscriptionType": null,
+      "types": [
+        {
+          "kind": "OBJECT",
+          "name": "Query",
+          "description": null,
+          "inputFields": null,
+          "enumValues": null,
+          "fields": [
+            {
+              "name": "pets",
+              "description": "Pets matching a status",
+              "args": [
+                {
+                  "name": "status",
+                  "description": null,
+                  "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"ENUM","name":"Status","ofType":null}},
+                  "defaultValue": null
+                },
+                {"name":"limit","description":null,"type":{"kind":"SCALAR","name":"Int","ofType":null},"defaultValue":null}
+              ],
+              "type": {
+                "kind": "NON_NULL",
+                "name": null,
+                "ofType": {
+                  "kind": "LIST",
+                  "name": null,
+                  "ofType": {"kind":"NON_NULL","name":null,"ofType":{"kind":"OBJECT","name":"Pet","ofType":null}}
+                }
+              }
+            },
+            {
+              "name": "pet",
+              "description": "One pet by id",
+              "args": [
+                {
+                  "name": "id",
+                  "description": null,
+                  "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"ID","ofType":null}},
+                  "defaultValue": null
+                }
+              ],
+              "type": {"kind":"OBJECT","name":"Pet","ofType":null}
+            }
+          ]
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Mutation",
+          "description": null,
+          "inputFields": null,
+          "enumValues": null,
+          "fields": [
+            {
+              "name": "addPet",
+              "description": "Add a pet",
+              "args": [
+                {
+                  "name": "input",
+                  "description": null,
+                  "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"INPUT_OBJECT","name":"PetInput","ofType":null}},
+                  "defaultValue": null
+                }
+              ],
+              "type": {"kind":"OBJECT","name":"Pet","ofType":null}
+            },
+            {
+              "name": "deletePet",
+              "description": "Delete a pet by id",
+              "args": [
+                {
+                  "name": "id",
+                  "description": null,
+                  "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"ID","ofType":null}},
+                  "defaultValue": null
+                }
+              ],
+              "type": {"kind":"SCALAR","name":"Boolean","ofType":null}
+            }
+          ]
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Pet",
+          "description": null,
+          "inputFields": null,
+          "enumValues": null,
+          "fields": [
+            {
+              "name": "id",
+              "description": null,
+              "args": [],
+              "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"ID","ofType":null}}
+            },
+            {
+              "name": "name",
+              "description": null,
+              "args": [],
+              "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}}
+            },
+            {"name":"status","description":null,"args":[],"type":{"kind":"ENUM","name":"Status","ofType":null}},
+            {"name":"owner","description":null,"args":[],"type":{"kind":"OBJECT","name":"Owner","ofType":null}}
+          ]
+        },
+        {
+          "kind": "OBJECT",
+          "name": "Owner",
+          "description": null,
+          "inputFields": null,
+          "enumValues": null,
+          "fields": [
+            {
+              "name": "name",
+              "description": null,
+              "args": [],
+              "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}}
+            },
+            {"name":"email","description":null,"args":[],"type":{"kind":"SCALAR","name":"String","ofType":null}}
+          ]
+        },
+        {
+          "kind": "ENUM",
+          "name": "Status",
+          "description": null,
+          "fields": null,
+          "inputFields": null,
+          "enumValues": [
+            {"name":"AVAILABLE","description":null},
+            {"name":"PENDING","description":null},
+            {"name":"SOLD","description":null}
+          ]
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "PetInput",
+          "description": null,
+          "fields": null,
+          "enumValues": null,
+          "inputFields": [
+            {
+              "name": "name",
+              "description": null,
+              "type": {"kind":"NON_NULL","name":null,"ofType":{"kind":"SCALAR","name":"String","ofType":null}},
+              "defaultValue": null
+            },
+            {"name":"status","description":null,"type":{"kind":"ENUM","name":"Status","ofType":null},"defaultValue":null}
+          ]
+        },
+        {"kind":"SCALAR","name":"ID","description":null,"fields":null,"inputFields":null,"enumValues":null},
+        {"kind":"SCALAR","name":"String","description":null,"fields":null,"inputFields":null,"enumValues":null},
+        {"kind":"SCALAR","name":"Int","description":null,"fields":null,"inputFields":null,"enumValues":null},
+        {"kind":"SCALAR","name":"Boolean","description":null,"fields":null,"inputFields":null,"enumValues":null}
+      ]
+    }
+  }
+}

@@ -15,7 +15,7 @@ export function buildPrompt({ window, goal, verb, desk, seed }) {
 
 Tools you may use: only this read-only command, as many times as you need:
   ${snap}
-It prints one element per line: <indent>@eN ControlType "Name" [x,y]. Indentation is two spaces per depth level. Elements you act on must be located by a path of ControlType:Name segments from an ancestor down to the target, matched in tree order. "*" matches any name; a name ending in "*" is a prefix match. Never use coordinates or @eN refs in the recipe; they change between runs.
+It prints one element per line: <indent>@eN ControlType "Name" [x,y] followed by any of value="...", toggle=on|off|mixed, selected=true, enabled=false, expanded=true|false, offscreen=true, popup="...". A trailing "# offscreen=N" line counts the elements that were skipped because they are not on screen. Indentation is two spaces per depth level. Elements you act on must be located by a path of ControlType:Name segments from an ancestor down to the target, matched in tree order. "*" matches any name; a name ending in "*" is a prefix match. Never use coordinates or @eN refs in the recipe; they change between runs.
 
 Recipe step vocabulary (JSON objects, in order):
   {"window": "<title substring>"}            focus the window (first step)
@@ -23,9 +23,21 @@ Recipe step vocabulary (JSON objects, in order):
   {"click": "id"}                            invoke it
   {"type": ["id", "text with {{arg}}"]}      set its value
   {"key": "{ENTER}"}                         send keys to the window (SendKeys syntax), literal only
-  {"read": "id", "as": "out"}                capture the element name into out
+  {"read": "id", "prop": "value", "as": "out"}   capture one property into out; prop is one of value, name, text, toggle, selected, enabled, and defaults to name
+  {"read-all": ["List:Rows", "ListItem:*"], "as": "out", "fields": {"title": "Text:Title"}}   every match as a row, each field a path relative to the row
   {"wait": 300}                              sleep milliseconds
-Arguments are substituted into {{name}} anywhere in a path or text; every {{name}} you use must be declared in args. Re-find an element after acting if you need its updated name (for example a display readout).
+  {"wait-for": ["Type:Name"], "timeout": 5000}   poll until the element shows up
+  {"wait-for-text": {"as": "id", "text": "Saved"}, "timeout": 5000}   poll until the text shows up ("as" is optional: without it, anywhere in the window)
+  {"scroll": "id"}                           bring it into view
+  {"expand": "id"} / {"collapse": "id"}      open or close a tree node, combo or menu
+  {"select": "id"}                           select a list item, tab or row
+  {"set": ["id", "on"]}                      drive a checkbox to on or off (a no-op when it is already there)
+  {"context": "id"}                          open its context menu
+  {"clipboard": "get", "as": "out"} / {"clipboard": "set", "text": "hi"}   read or write the clipboard
+  {"assert": {"as": "id", "prop": "value", "equals": "42"}}   check state after acting; "matches" takes a regex instead
+  {"dismiss": true}                          send Escape to the focused window
+  {"launch": {"command": "calc.exe", "args": [], "waitForWindow": "Calculator", "timeout": 8000}}   start the app; literal only, never {{args}}, same rule as key steps
+Add "optional": true to any step to skip it when its element is not there. Arguments are substituted into {{name}} anywhere in a path or text; every {{name}} you use must be declared in args. Never read a value out of the element name: use a read step with the right prop, and re-find an element after acting if the tree changed.
 
 Answer with reasoning as you like, then end with exactly one fenced json block of this shape:
 \`\`\`json
@@ -33,7 +45,7 @@ Answer with reasoning as you like, then end with exactly one fenced json block o
  "steps": [ ... ], "returns": "out",
  "example": ["value for each arg, in order"], "expect": "regex the returned value must match when run with example"}
 \`\`\`
-"returns" must name the "as" of a read step. "example" and "expect" are required: declick replays the recipe once with the example values and only saves it when the returned value matches expect. Add "mutating": true when the verb changes application state or data, and omit the key if you are unsure. Do not include coordinates, secrets, or absolute refs.`;
+"returns" must name the "as" of a read step. "example" and "expect" are required: declick replays the recipe once with the example values and only saves it when the returned value matches expect. A recipe is treated as mutating unless every step only looks (window, find, read, read-all, wait, wait-for, wait-for-text, assert), so set "mutating": true when it changes state and leave the key out otherwise. Do not include coordinates, secrets, or absolute refs.`;
 }
 
 // Every top-level {...} block, in order, skipping braces inside json strings.
@@ -53,7 +65,9 @@ export function parseRecipe(text, { name, verb } = {}) {
   const s = String(text).replace(/\r\n/g, '\n');
   const fences = [...s.matchAll(/```[ \t]*(?:json)?[ \t]*\n([\s\S]*?)\n[ \t]*```/gi)].map(m => m[1]);
   for (const cand of [...fences.reverse(), ...objects(s).reverse()]) {
-    try { return JSON.parse(cand); } catch {}
+    // An authoring model that says nothing about mutating gets the safe answer; a claimed false is left
+    // alone here and raised in author() from the steps, which are the truth.
+    try { const r = JSON.parse(cand); if (r && typeof r === 'object' && r.mutating === undefined) r.mutating = true; return r; } catch {}
   }
   let kept = '';
   if (name && verb) {
@@ -87,7 +101,7 @@ import { join } from 'node:path';
 import { manifestDir } from './manifest.mjs';
 import { saveRecipe, validateStoredRecipe } from './recipes.mjs';
 import { execute, snapshotTree, DESK } from './engines/desktop.mjs';
-import { guard } from './guard.mjs';
+import { guard, stepsMutate } from './guard.mjs';
 import { EXIT } from './output.mjs';
 
 // Allowlist, not a blocklist: the authoring model runs other people's prompts and has no
@@ -134,14 +148,16 @@ export async function author({ name, window, goal, verb, seed }) {
   const r = parseRecipe(text, { name, verb });
   const errs = validateRecipe(r);
   if (errs.length) throw Object.assign(new Error(`author recipe invalid: ${errs.join('; ')}`), { exit: EXIT.ERROR });
-  const mutating = r.mutating !== false;
+  // A recipe that claims to change nothing but clicks something is mutating anyway.
+  const mutating = r.mutating !== false || stepsMutate('desktop', r.steps);
   const m = { name, engine: 'desktop', source: `app:${window}`, window, builtAt: new Date().toISOString(), auth: { env: [] },
     verbs: [{ name: r.verb, description: r.description, args: r.args, flags: [], mutating, recipe: { steps: r.steps, returns: r.returns, tree: null } }] };
   const dry = await execute(m, r.verb, r.example, { dryRun: true });
   if (!dry.ok) { const p = keepProposal(name, r.verb, r); throw Object.assign(new Error(`dry-run failed: ${dry.error}; proposal kept at ${p}`), { exit: dry.exit === EXIT.BLOCKED ? EXIT.BLOCKED : EXIT.NOT_FOUND }); }
   // The replay below really clicks: same gate as bin/run.mjs, before anything moves.
   if (mutating) {
-    const g = await guard({ tool: name, action: r.verb, engine: 'desktop', target: window });
+    const g = await guard({ tool: name, action: r.verb, engine: 'desktop', target: window,
+      args: Object.fromEntries((r.args || []).map((a, i) => [a.name, r.example?.[i]]).filter(([, x]) => x !== undefined)) });
     if (!g.allowed) { const p = keepProposal(name, r.verb, r); throw Object.assign(new Error(`replay blocked by governance: ${g.reason}; proposal kept at ${p}`), { exit: EXIT.BLOCKED }); }
   }
   const res = await execute(m, r.verb, r.example, {});

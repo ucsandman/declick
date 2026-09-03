@@ -1,4 +1,5 @@
-{ "description": "Type text into the open Notepad document", "args": [{ "name": "text" }], "mutating": true,
+{ "description": "Type text into the open Notepad document", "args": [{ "name": "text", "example": "declick was here" }], "mutating": true,
+  "launch": { "command": "notepad.exe", "waitForWindow": "Notepad", "timeout": 15000 },
   "steps": [ { "window": "Notepad" }, { "find": ["Document:*"], "as": "doc" }, { "type": ["doc", "{{text}}"] },
-             { "find": ["Document:*"], "as": "doc2" }, { "read": "doc2", "as": "result" } ],
+             { "find": ["Document:*"], "as": "doc2" }, { "read": "doc2", "prop": "name", "as": "result" } ],
   "returns": "result" }

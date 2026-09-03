@@ -20,6 +20,20 @@ test('prompt names the window, goal, snapshot command and output rules', () => {
   for (const s of ['Calculator', 'add two numbers', 'bash "C:/x/desk" snapshot "Calculator"', 'ControlType:Name', '"example"', '"expect"', '```json']) assert.ok(p.includes(s), `missing ${s}`);
   assert.ok(!p.includes('\u2014'), 'no em dashes');
 });
+test('the prompt teaches every 0.3 step with one example', () => {
+  const p = buildPrompt({ window: 'Calculator', goal: 'g', verb: 'add', desk: 'd' });
+  for (const k of ['read-all', 'wait-for', 'wait-for-text', 'scroll', 'expand', 'collapse', 'select', 'context', 'set', 'clipboard', 'assert', 'dismiss', 'launch', 'optional']) {
+    assert.ok(p.includes(`"${k}"`), `prompt never shows a "${k}" step`);
+  }
+  assert.ok(p.includes('value, name, text, toggle, selected, enabled'), 'read props are listed');
+  assert.ok(p.includes('offscreen'), 'the attribute tail is explained');
+});
+test('the prompt requires a read prop for values and forbids templated key and launch steps', () => {
+  const p = buildPrompt({ window: 'Calculator', goal: 'g', verb: 'add', desk: 'd' });
+  assert.match(p, /never read a value out of the element name/i);
+  assert.match(p, /literal[^\n]*\{\{/i);
+  assert.ok(!p.includes('—'), 'no em dashes');
+});
 test('repair prompt carries the old recipe and the diff', () => {
   const p = buildPrompt({ window: 'Calculator', goal: 'add two numbers', verb: 'add', desk: 'd', seed: { recipe: good, diff: { missing: ['Button:Plus'], added: ['Button:Plus Sign'] }, error: 'element not found: Button:Plus' } });
   assert.ok(p.includes('Button:Plus Sign')); assert.ok(p.includes('element not found')); assert.ok(p.includes('"verb": "add"'));

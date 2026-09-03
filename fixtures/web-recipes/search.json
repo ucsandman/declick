@@ -1,0 +1,15 @@
+{
+  "description": "Search the site and read the result line",
+  "args": [{ "name": "query" }],
+  "steps": [
+    { "goto": "/" },
+    { "find": "#q", "as": "box" },
+    { "type": ["box", "{{query}}"] },
+    { "find": "#go", "as": "go" },
+    { "click": "go" },
+    { "wait-for": "#result", "timeout": 5000 },
+    { "find": "#result", "as": "out" },
+    { "read": "out", "as": "line" }
+  ],
+  "returns": "line"
+}

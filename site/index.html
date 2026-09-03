@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>declick: turn any app or API into a CLI for AI agents</title>
-<meta name="description" content="declick compiles an OpenAPI spec or a native Windows app into a command line tool with one output contract, so agents run verbs instead of screenshots.">
+<meta name="description" content="declick compiles an API, database, CLI tool, browser page, or Windows app into a CLI with one output contract, so agents run verbs instead of screenshots.">
 <link rel="canonical" href="https://declick.dev/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:type" content="website">
 <meta property="og:title" content="declick: turn anything into a CLI. Your agents stop clicking.">
-<meta property="og:description" content="Compile an OpenAPI spec or a Windows app into a CLI with a fixed output contract. Deterministic replay, no screenshots at run time.">
+<meta property="og:description" content="Compile an OpenAPI spec, GraphQL, MCP, a database, a CLI tool, a browser page or a Windows app into a CLI with a fixed output contract. Deterministic replay, no screenshots at run time.">
 <meta property="og:url" content="https://declick.dev/">
 <meta property="og:image" content="https://declick.dev/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="declick: turn anything into a CLI. Your agents stop clicking.">
-<meta name="twitter:description" content="Compile an OpenAPI spec or a Windows app into a CLI with a fixed output contract.">
+<meta name="twitter:description" content="Compile an OpenAPI spec, GraphQL, MCP, a database, a CLI tool, a browser page or a Windows app into a CLI with a fixed output contract.">
 <meta name="twitter:image" content="https://declick.dev/og.png">
 <style>
 :root{--bg:#0f1115;--fg:#e8e8e8;--dim:#9aa0a6;--accent:#ffb454;--code:#171a21;--line:#262a33}
@@ -31,7 +31,7 @@ footer{margin-top:4rem;color:var(--dim);font-size:.9rem;border-top:1px solid var
 <body>
 <main>
 <h1>Turn anything into a CLI.<br>Your agents stop clicking.</h1>
-<p class="lead">declick compiles an OpenAPI spec or a native Windows app into a command line tool. Every generated CLI honors the same output contract, so an agent learns it once and never reads a screenshot again.</p>
+<p class="lead">declick compiles an OpenAPI or Swagger spec, a GraphQL API, an MCP server, a Postman/Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own <code>--help</code>, a browser page, or a native Windows app into a command line tool. Every generated CLI honors the same output contract, so an agent learns it once and never reads a screenshot again.</p>
 <div class="links"><a href="https://github.com/ucsandman/declick">GitHub</a><a href="https://www.npmjs.com/package/declick">npm</a><a href="#contract">The contract</a><a href="#desktop">Windows apps</a></div>
 
 <h2>Install</h2>
@@ -47,7 +47,7 @@ common: --json --fields --limit --dry-run   exit: 0 ok 1 err 2 missing 3 blocked
 <p>Each adapter also gets a two line launcher (<code>petstore get-pet-by-id 7</code> once <code>~/.declick/bin</code> is on PATH; <code>declick path --install</code> does that) and a generated <code>SKILL.md</code>, so Claude Code and other agents discover it without being told. Requires Node 24.</p>
 
 <h2 id="desktop">Windows apps, without a model in the loop at run time</h2>
-<p>Web pages and MCP servers already have converters. Native Windows apps did not. declick owns that engine, built on <a href="https://github.com/ucsandman/deskclaw">deskclaw</a> UI Automation.</p>
+<p>Native Windows apps are the input class nobody else compiles. declick owns that engine, built on <a href="https://github.com/ucsandman/deskclaw">deskclaw</a> UI Automation, and the same recipe model drives the web engine over a real browser.</p>
 <pre><code><span class="cmd">declick desk arm 15</span>
 <span class="cmd">declick add app:Calculator --goal "multiply two numbers and return the display" --verb multiply</span>
 <span class="out">saved ~/.declick/calculator/recipes/multiply.json (replay returned "Display is 12")</span>
@@ -65,16 +65,14 @@ common: --json --fields --limit --dry-run   exit: 0 ok 1 err 2 missing 3 blocked
 <tr><td><code>--dry-run</code></td><td>Every mutating verb prints what it would do, with <code>meta.dryRun: true</code>.</td></tr>
 <tr><td>Errors</td><td><code>{ok:false, error, exit}</code> plus <code>data</code> when the engine has a payload. Unknown flags are exit 1, never ignored.</td></tr>
 <tr><td>Exit codes</td><td>0 ok, 1 error, 2 not found, 3 blocked, 4 auth needed.</td></tr>
-<tr><td>Governance</td><td>Mutating verbs route through DashClaw when <code>DASHCLAW_API_KEY</code> is set.</td></tr>
+<tr><td>Governance</td><td>Mutating verbs route through DashClaw when <code>DASHCLAW_API_KEY</code> is set; strict by default once it is, so an unreachable guard blocks instead of failing open.</td></tr>
 <tr><td>Auth</td><td>Manifests name env keys only. Values come from the environment or the creds vault.</td></tr>
 </table>
 <p><code>declick lint</code> checks every adapter against the contract, and every <code>declick</code> command follows it too: <code>list</code>, <code>status</code>, <code>doctor</code>, <code>auth</code>, <code>manifest</code>, <code>run</code>, all with <code>--json</code>, so an agent never leaves the shell.</p>
 
-<h2>Next</h2>
-<ul>
-<li>MCP servers through mcporter and websites through OpenCLI, behind the same contract.</li>
-<li><code>declick ui</code> already ships: one local page with every adapter, last run, and add, build, repair, remove buttons.</li>
-</ul>
+<h2>Nine engines, zero dependencies</h2>
+<p>Every engine is built in, with no delegate and no runtime dependency: <code>openapi</code> (OpenAPI 3 and Swagger 2, JSON or YAML), <code>graphql</code>, <code>mcp</code> (stdio and streamable HTTP), <code>postman</code> (Postman v2.1 and Insomnia v4), <code>har</code>, <code>sqlite</code>, <code>cli</code> (compiled from a tool's own <code>--help</code>), <code>web</code> (a real browser over CDP; a miss returns the page's elements, never a screenshot), and <code>desktop</code>. <code>declick engines --source &lt;x&gt;</code> says which one a source lands on before anything is written.</p>
+<p><code>declick ui</code> ships too: one local page with every adapter, last run, and add, build, repair, remove buttons.</p>
 
 <footer>MIT. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>. Source on <a href="https://github.com/ucsandman/declick">GitHub</a>.</footer>
 </main>

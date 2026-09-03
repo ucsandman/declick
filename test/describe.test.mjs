@@ -4,8 +4,8 @@ import { describe, describeJson } from '../src/describe.mjs';
 import { lint } from '../src/lint.mjs';
 
 const m = { name: 'pet', engine: 'openapi', source: 'x.json', baseUrl: 'https://api.example.com/v1', builtAt: 'now', auth: { env: ['PET_TOKEN'] }, verbs: [
-  { name: 'list-pets', description: 'List pets by status', args: [], flags: [{ name: 'status', description: 'available|pending|sold', required: true }], mutating: false, http: { path: '/pets' } },
-  { name: 'add-pet', description: 'Create a pet', args: [{ name: 'name', required: true }], flags: [], mutating: true, http: { path: '/pets/{name}' } },
+  { name: 'list-pets', description: 'List pets by status', args: [], flags: [{ name: 'status', description: 'available|pending|sold', required: true }], mutating: false, http: { path: '/pets' }, returns: { shape: 'object', rowsPath: 'items', fields: [{ name: 'id' }, { name: 'name' }, { name: 'status' }] } },
+  { name: 'add-pet', description: 'Create a pet', args: [{ name: 'name', required: true }], flags: [], mutating: true, http: { path: '/pets/{name}' }, returns: { shape: 'object', fields: [{ name: 'id' }, { name: 'name' }] } },
 ] };
 
 test('describe is compact and lists verbs', () => {
@@ -13,17 +13,49 @@ test('describe is compact and lists verbs', () => {
   assert.match(s, /^pet \(openapi\)  source: x\.json  base: https:\/\/api\.example\.com\/v1/);
   assert.match(s, /list-pets\s+List pets by status/);
   assert.match(s, /add-pet <name>\s+Create a pet \[mutating\]/);
-  assert.match(s, /--json --fields --limit --dry-run --full/);
+  assert.match(s, /--json --fields --limit --rows --dry-run --full/);
   assert.ok(!s.includes('available|pending|sold'), 'flag detail only in --full');
   assert.ok(s.length < 2000);
 });
+test('the first line says how many alternate servers there are, and --full names the request flags', () => {
+  const one = describe(m);
+  const first = s => s.split('\n')[0];
+  assert.ok(!one.includes('--server'), first(one));
+  const many = { ...m, servers: [{ url: m.baseUrl }, { url: 'https://sandbox.example.com/v1', description: 'sandbox' }, { url: 'https://eu.example.com/v1' }] };
+  assert.match(first(describe(many)), / base: https:\/\/api\.example\.com\/v1 \(\+2 more, --server <i\|description>\)$/);
+  // The contract flags a request engine accepts are worth one line, but only for a caller who asked for detail.
+  assert.match(describe(m, { full: true }), /\nrequest: --header --base-url --server --content-type --body-file --output --retry --timeout --curl --verbose\n/);
+  assert.ok(!one.includes('request: --header'), 'the request line is --full only');
+  assert.ok(!describe({ ...m, engine: 'sqlite', baseUrl: 'sqlite:/tmp/x.db' }, { full: true }).includes('request: --header'), 'a database takes no http flags');
+});
 test('describe --full includes flag detail and required markers', () => assert.match(describe(m, { full: true }), /--status \(required\)\s+available\|pending\|sold/));
 test('describe --verb narrows to one verb', () => { const s = describe(m, { verb: 'add-pet', full: true }); assert.ok(s.includes('add-pet') && !s.includes('list-pets')); });
+test('describe --full names what each verb returns and where its rows live', () => {
+  const s = describe(m, { full: true });
+  assert.match(s, /\n      -> \[ \{id, name, status\} \] rows: items\n/);
+  assert.match(s, /\n      -> \{id, name\}/);
+  assert.ok(!describe(m).includes('->'), 'the arrow is --full only');
+  assert.ok(!describe({ ...m, verbs: [{ ...m.verbs[1], returns: { shape: 'none', fields: [] } }] }, { full: true }).includes('->'), 'nothing to say for none');
+});
+test('describe --full prints enum, default and example, and describeJson keeps them', () => {
+  const em = { ...m, verbs: [{ ...m.verbs[0], args: [{ name: 'kind', required: true, type: 'string', enum: ['cat', 'dog'] }],
+    flags: [{ name: 'status', description: 'lifecycle', required: false, type: 'string', enum: ['available', 'pending', 'sold'], default: 'available', example: 'sold' }] }] };
+  const s = describe(em, { full: true });
+  assert.match(s, /--status\s+lifecycle\s+one of available\|pending\|sold\s+default: available\s+e\.g\. sold/);
+  assert.match(s, /<kind>\s+one of cat\|dog/);
+  assert.ok(!describe(em).includes('one of'), 'facets are --full only');
+  const f = describeJson(em).verbs[0].flags[0];
+  assert.deepEqual(f.enum, ['available', 'pending', 'sold']);
+  assert.equal(f.default, 'available'); assert.equal(f.example, 'sold');
+  assert.deepEqual(describeJson(em).verbs[0].args[0].enum, ['cat', 'dog']);
+});
 test('describeJson is the manifest minus internals', () => {
   const j = describeJson(m);
   assert.equal(j.baseUrl, m.baseUrl); assert.equal(j.window, null);
   assert.deepEqual(j.verbs.map(v => v.name), ['list-pets', 'add-pet']);
   assert.equal(j.verbs[0].http, undefined);
+  assert.deepEqual(j.verbs[0].returns, m.verbs[0].returns);
+  assert.equal(describeJson({ ...m, verbs: [{ ...m.verbs[0], returns: undefined }] }).verbs[0].returns, null);
   assert.deepEqual(describeJson(m, { verb: 'add-pet' }).verbs.map(v => v.name), ['add-pet']);
 });
 test('lint passes a good manifest', () => assert.deepEqual(lint(m), []));

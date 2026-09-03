@@ -1,7 +1,8 @@
 {
   "description": "Add two digits and read the display (deliberately broken path)",
-  "args": [{ "name": "a" }, { "name": "b" }],
+  "args": [{ "name": "a", "example": "Seven" }, { "name": "b", "example": "Seven" }],
   "mutating": true,
+  "launch": { "command": "calc.exe", "waitForWindow": "Calculator", "timeout": 15000 },
   "steps": [
     { "window": "Calculator" },
     { "find": ["Group:Number pad", "Button:{{a}}"], "as": "first" }, { "click": "first" },

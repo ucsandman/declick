@@ -1,0 +1,10 @@
+{
+  "description": "Read the page title",
+  "args": [],
+  "mutating": false,
+  "steps": [
+    { "goto": "/" },
+    { "eval": "document.title", "as": "title" }
+  ],
+  "returns": "title"
+}

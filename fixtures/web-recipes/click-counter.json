@@ -1,0 +1,12 @@
+{
+  "description": "Click the counter button and read the new count",
+  "args": [],
+  "steps": [
+    { "goto": "/" },
+    { "find": "text=Add one", "as": "btn" },
+    { "click": "btn" },
+    { "find": "#count", "as": "c" },
+    { "read": "c", "as": "count" }
+  ],
+  "returns": "count"
+}

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Declick Web Fixture</title></head>
+<body>
+<h1>Declick Web Fixture</h1>
+
+<form id="search" onsubmit="return false">
+  <input id="q" name="q" placeholder="Search parts">
+  <button id="go" type="button">Search</button>
+</form>
+
+<ul id="items">
+  <li data-sku="A-1"><span class="name">Alpha</span><span class="price">10</span><a class="more" href="/docs.html#a">details</a></li>
+  <li data-sku="B-2"><span class="name">Bravo</span><span class="price">20</span><a class="more" href="/docs.html#b">details</a></li>
+  <li data-sku="C-3"><span class="name">Charlie</span><span class="price">30</span><a class="more" href="/docs.html#c">details</a></li>
+</ul>
+
+<p><a id="docs" href="/docs.html">Documentation</a></p>
+
+<button id="bump">Add one</button>
+<p>count: <span id="count">0</span></p>
+
+<script>
+// The result node is created on demand so wait-for has something real to wait for.
+function run() {
+  var q = document.getElementById('q').value.trim();
+  setTimeout(function () {
+    var r = document.getElementById('result');
+    if (!r) { r = document.createElement('p'); r.id = 'result'; document.body.appendChild(r); }
+    r.textContent = q ? 'found ' + q : 'type something';
+  }, 150);
+}
+document.getElementById('go').addEventListener('click', run);
+document.getElementById('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
+document.getElementById('bump').addEventListener('click', function () {
+  var c = document.getElementById('count');
+  c.textContent = String(Number(c.textContent) + 1);
+});
+</script>
+</body>
+</html>

@@ -42,7 +42,8 @@ test('server variables substitute and the trailing slash goes', () => {
 test('a relative server url resolves against a url source', async () => {
   const spec = { openapi: '3.0.0', info: { title: 'Rel' }, servers: [{ url: '/api/v3' }], paths: { '/ping': { get: { operationId: 'ping', summary: 'Ping' } } } };
   const real = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: true, json: async () => spec });
+  // A spec url is read as text now, because the same url may serve yaml.
+  globalThis.fetch = async () => ({ ok: true, json: async () => spec, text: async () => JSON.stringify(spec) });
   try {
     const m = await compile('https://petstore3.swagger.io/api/v3/openapi.json', { name: 'rel' });
     assert.equal(m.baseUrl, 'https://petstore3.swagger.io/api/v3');
@@ -80,7 +81,70 @@ test('a body schema with properties but no type still yields flags', () => {
 });
 
 test('names are derived, deduped and never collide with describe', () => {
-  assert.deepEqual(edge.verbs.map(v => v.name), ['list', 'describe-op', 'list-users', 'list-2', 'get-items-id', 'post-2fa-setup']);
+  assert.deepEqual(edge.verbs.map(v => v.name), ['list', 'describe-op', 'list-users', 'list-2', 'get-items-id', 'post-2fa-setup', 'get-report', 'upload', 'create-order']);
+});
+
+test('every server is recorded, the first one is the base and alternates keep their description', () => {
+  assert.deepEqual(edge.servers, [{ url: 'https://edge.example.com/v2' }, { url: 'https://sandbox.edge.example.com/v2', description: 'sandbox' }]);
+  assert.equal(edge.baseUrl, edge.servers[0].url);
+});
+
+test('header and cookie parameters compile with their location and an unhandled one warns', () => {
+  const r = edge.verbs.find(v => v.name === 'get-report');
+  assert.deepEqual(r.flags.map(f => f.name), ['format', 'page', 'x-trace-id', 'region']);
+  assert.deepEqual(r.flags.find(f => f.name === 'x-trace-id'), { name: 'x-trace-id', description: 'trace id', required: false, type: 'string', in: 'header', wire: 'X-Trace-Id' });
+  assert.deepEqual(r.flags.find(f => f.name === 'region'), { name: 'region', description: 'data region', required: false, type: 'string', in: 'cookie' });
+  assert.ok(warnings.includes('get-report: skipping parameter shard in matrix; declick sends path, query, header and cookie\n'), warnings.join(''));
+  assert.ok(!r.flags.some(f => /accept/i.test(f.name)), 'accept, content-type and authorization are not parameters');
+});
+
+test('enum, default and example survive onto flags', () => {
+  const fmt = edge.verbs.find(v => v.name === 'get-report').flags.find(f => f.name === 'format');
+  assert.deepEqual(fmt, { name: 'format', description: '', required: false, type: 'string', enum: ['pdf', 'csv'], default: 'pdf', example: 'csv' });
+});
+
+test('nested body properties become dotted flags and binary parts keep their format', () => {
+  const order = edge.verbs.find(v => v.name === 'create-order');
+  assert.deepEqual(order.flags.map(f => f.name), ['body', 'qty', 'paid', 'tags', 'address.city', 'address.zip']);
+  assert.deepEqual(order.flags.find(f => f.name === 'qty'), { name: 'qty', description: 'how many', required: true, type: 'integer', default: 1 });
+  assert.equal(order.flags.find(f => f.name === 'address.city').required, true);
+  assert.equal(order.flags.find(f => f.name === 'address.zip').required, false);
+  assert.equal(order.http.bodyType, 'application/json');
+  assert.deepEqual(order.http.bodyTypes, ['application/json', 'application/x-www-form-urlencoded']);
+  const up = edge.verbs.find(v => v.name === 'upload');
+  assert.equal(up.http.bodyType, 'multipart/form-data');
+  assert.equal(up.http.bodyTypes, undefined, 'one declared type needs no list');
+  assert.deepEqual(up.flags.find(f => f.name === 'file'), { name: 'file', description: '', required: true, type: 'string', format: 'binary' });
+});
+
+test('a swagger 2.0 spec converts to openapi 3 and compiles', async () => {
+  const m = await compile('fixtures/swagger2.json', { name: 'legacy' });
+  assert.equal(m.baseUrl, 'https://legacy.example.com/v1');
+  assert.deepEqual(m.servers.map(s => s.url), ['https://legacy.example.com/v1', 'http://legacy.example.com/v1']);
+  assert.deepEqual(m.auth.env, ['LEGACY_API_KEY']);
+  assert.deepEqual(m.auth.schemes.api_key, { type: 'apiKey', in: 'header', name: 'X-Api-Key', env: 'LEGACY_API_KEY' });
+  const list = m.verbs.find(v => v.name === 'list-things');
+  assert.deepEqual(list.args, []);
+  assert.deepEqual(list.flags, [{ name: 'status', description: 'filter', required: false, type: 'string', enum: ['open', 'done'], default: 'open' }]);
+  assert.deepEqual(list.returns, { shape: 'array', fields: [{ name: 'id', type: 'string' }, { name: 'name', type: 'string' }] });
+  const add = m.verbs.find(v => v.name === 'add-thing');
+  assert.equal(add.http.bodyType, 'application/json');
+  assert.deepEqual(add.flags.map(f => f.name), ['body', 'name', 'note']);
+  assert.equal(add.flags.find(f => f.name === 'name').required, true);
+  const up = m.verbs.find(v => v.name === 'upload-thing');
+  assert.equal(up.http.bodyType, 'multipart/form-data');
+  assert.deepEqual(up.args, [{ name: 'id', required: true, type: 'string' }]);
+  assert.deepEqual(up.flags.find(f => f.name === 'file'), { name: 'file', description: 'the file', required: true, type: 'string', format: 'binary' });
+  assert.deepEqual(lint(m), []);
+});
+
+test('an unmappable swagger 2.0 construct names the construct', async () => {
+  const { toOpenApi3 } = await import('../src/engines/swagger2.mjs');
+  assert.throws(() => toOpenApi3({ swagger: '2.0', info: { title: 'x' }, host: 'h', securityDefinitions: { weird: { type: 'oauth2', flow: 'magic' } }, paths: {} }, 'x.json'),
+    e => e.exit === 1 && /oauth2 flow magic/.test(e.message));
+  assert.throws(() => toOpenApi3({ swagger: '2.0', info: { title: 'x' }, host: 'h', paths: { '/p': { get: { operationId: 'p', parameters: [{ name: 'm', in: 'matrix' }] } } } }, 'x.json'),
+    e => e.exit === 1 && /matrix/.test(e.message));
+  assert.throws(() => toOpenApi3({ openapi: '3.0.0' }, 'x.json'), e => e.exit === 1 && /is not 2\.x/.test(e.message));
 });
 
 test('verbs and tag filters narrow the manifest', async () => {
@@ -90,4 +154,60 @@ test('verbs and tag filters narrow the manifest', async () => {
   assert.deepEqual(byTag.verbs.map(v => v.name), ['list-users', 'list-2']);
   await assert.rejects(() => compile('fixtures/openapi-edge.json', { name: 'edge', verbs: ['nope'] }),
     e => e.exit === 1 && /available: list, describe-op/.test(e.message));
+});
+
+test('compiled returns carry the response shape, its rows path and its fields', () => {
+  const fields = [{ name: 'id', type: 'string' }, { name: 'name', type: 'string' }, { name: 'status', type: 'string' }];
+  assert.deepEqual(edge.verbs.find(v => v.name === 'list').returns, { shape: 'object', rowsPath: 'items', fields });
+  assert.deepEqual(edge.verbs.find(v => v.name === 'list-users').returns, { shape: 'array', fields });
+  assert.deepEqual(edge.verbs.find(v => v.name === 'get-items-id').returns, { shape: 'object', fields });
+  assert.deepEqual(edge.verbs.find(v => v.name === 'post-2fa-setup').returns, { shape: 'none', fields: [] });
+});
+
+test('a wide response caps its fields at 30 and a scalar body has none', async () => {
+  const props = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`f${i}`, { type: 'string' }]));
+  const json = schema => ({ '200': { content: { 'application/json': { schema } } } });
+  const p = join(mkdtempSync(join(tmpdir(), 'declick-')), 'wide.json');
+  writeFileSync(p, JSON.stringify({ openapi: '3.0.0', info: { title: 'Wide' }, servers: [{ url: 'https://wide.test' }], paths: {
+    '/wide': { get: { operationId: 'wide', summary: 'Wide', responses: json({ type: 'object', properties: props }) } },
+    '/count': { get: { operationId: 'count', summary: 'Count', responses: json({ type: 'integer' }) } },
+    '/blob': { get: { operationId: 'blob', summary: 'Blob', responses: { '200': { content: { 'application/octet-stream': {} } } } } },
+  } }));
+  const m = await compile(p, { name: 'wide' });
+  const wide = m.verbs.find(v => v.name === 'wide').returns;
+  assert.equal(wide.fields.length, 30); assert.equal(wide.truncated, true); assert.equal(wide.rowsPath, undefined);
+  assert.deepEqual(m.verbs.find(v => v.name === 'count').returns, { shape: 'scalar', fields: [] });
+  assert.deepEqual(m.verbs.find(v => v.name === 'blob').returns, { shape: 'none', fields: [] });
+  assert.deepEqual(lint(m), []);
+});
+
+test('a spec parameter named rows is renamed like every other contract flag', async () => {
+  const p = join(mkdtempSync(join(tmpdir(), 'declick-')), 'rows.json');
+  writeFileSync(p, JSON.stringify({ openapi: '3.0.0', info: { title: 'Rows' }, servers: [{ url: 'https://rows.test' }],
+    paths: { '/r': { get: { operationId: 'listR', summary: 'List r', parameters: [{ name: 'rows', in: 'query', schema: { type: 'integer' } }] } } } }));
+  const m = await compile(p, { name: 'rows' });
+  assert.deepEqual(m.verbs[0].flags, [{ name: 'param-rows', description: '', required: false, type: 'integer', wire: 'rows' }]);
+  assert.deepEqual(lint(m), []);
+  assert.ok(lint({ ...m, verbs: [{ ...m.verbs[0], flags: [{ name: 'rows' }] }] }).some(e => /--rows collides/.test(e)));
+});
+
+test('a yaml spec compiles to the same adapter as the json one, keeping its own path', async () => {
+  const y = await compile('fixtures/petstore.yaml', { name: 'petstore' });
+  const j = await compile('fixtures/petstore.json', { name: 'petstore' });
+  assert.equal(y.source, resolve('fixtures/petstore.yaml'));
+  assert.deepEqual({ ...y, source: null, builtAt: null }, { ...j, source: null, builtAt: null });
+  assert.deepEqual(lint(y), []);
+});
+
+test('mutating comes from the method, and lint refuses a manifest that lowered it', async () => {
+  const m = await compile('fixtures/petstore.json', { name: 'petstore' });
+  assert.deepEqual(m.verbs.map(v => [v.name, v.mutating]),
+    [['find-pets-by-status', false], ['get-pet-by-id', false], ['delete-pet', true], ['add-pet', true]]);
+  const lowered = { ...m, verbs: m.verbs.map(v => (v.name === 'delete-pet' ? { ...v, mutating: false } : v)) };
+  assert.ok(lint(lowered).some(e => /delete-pet: mutating false, but DELETE changes state/.test(e)), JSON.stringify(lint(lowered)));
+  const alsoLowered = { ...m, verbs: m.verbs.map(v => (v.name === 'add-pet' ? { ...v, mutating: false } : v)) };
+  assert.ok(lint(alsoLowered).some(e => /add-pet: mutating false, but POST changes state/.test(e)));
+  // Raising is always allowed: a read that costs money or rate limit may declare itself mutating.
+  const raised = { ...m, verbs: m.verbs.map(v => (v.name === 'get-pet-by-id' ? { ...v, mutating: true } : v)) };
+  assert.deepEqual(lint(raised), []);
 });

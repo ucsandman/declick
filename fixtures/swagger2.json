@@ -1,0 +1,40 @@
+{
+  "swagger": "2.0",
+  "info": { "title": "Legacy API", "version": "1.0.0" },
+  "host": "legacy.example.com",
+  "basePath": "/v1",
+  "schemes": ["http", "https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": { "api_key": { "type": "apiKey", "in": "header", "name": "X-Api-Key" } },
+  "security": [{ "api_key": [] }],
+  "definitions": {
+    "Thing": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" } } },
+    "NewThing": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "description": "what to call it" }, "note": { "type": "string" } } }
+  },
+  "paths": {
+    "/things": {
+      "get": {
+        "operationId": "listThings", "summary": "List things",
+        "parameters": [{ "name": "status", "in": "query", "type": "string", "enum": ["open", "done"], "default": "open", "description": "filter" }],
+        "responses": { "200": { "description": "ok", "schema": { "type": "array", "items": { "$ref": "#/definitions/Thing" } } } }
+      },
+      "post": {
+        "operationId": "addThing", "summary": "Add a thing",
+        "parameters": [{ "name": "body", "in": "body", "required": true, "schema": { "$ref": "#/definitions/NewThing" } }],
+        "responses": { "201": { "description": "made", "schema": { "$ref": "#/definitions/Thing" } } }
+      }
+    },
+    "/things/{id}/upload": {
+      "post": {
+        "operationId": "uploadThing", "summary": "Upload a thing file", "consumes": ["multipart/form-data"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "type": "string" },
+          { "name": "file", "in": "formData", "required": true, "type": "file", "description": "the file" },
+          { "name": "label", "in": "formData", "type": "string" }
+        ],
+        "responses": { "204": { "description": "done" } }
+      }
+    }
+  }
+}

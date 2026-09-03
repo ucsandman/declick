@@ -1,7 +1,10 @@
 {
   "openapi": "3.0.3",
   "info": { "title": "Edge API", "version": "1.0.0" },
-  "servers": [{ "url": "https://{host}/v{ver}/", "variables": { "host": { "default": "edge.example.com" }, "ver": { "default": "2" } } }],
+  "servers": [
+    { "url": "https://{host}/v{ver}/", "variables": { "host": { "default": "edge.example.com" }, "ver": { "default": "2" } } },
+    { "url": "https://sandbox.edge.example.com/v2/", "description": "sandbox" }
+  ],
   "security": [{ "oauth": [] }],
   "components": {
     "parameters": {
@@ -9,7 +12,17 @@
       "Id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
     },
     "schemas": {
-      "NewItem": { "properties": { "title": { "type": "string", "description": "item title" }, "note": { "type": "string" } }, "required": ["title"] }
+      "NewItem": { "properties": { "title": { "type": "string", "description": "item title" }, "note": { "type": "string" } }, "required": ["title"] },
+      "Row": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "status": { "type": "string" } } },
+      "Order": {
+        "type": "object", "required": ["qty", "address"],
+        "properties": {
+          "qty": { "type": "integer", "description": "how many", "default": 1 },
+          "paid": { "type": "boolean" },
+          "tags": { "type": "array", "description": "labels", "items": { "type": "string" } },
+          "address": { "type": "object", "required": ["city"], "properties": { "city": { "type": "string" }, "zip": { "type": "string" } } }
+        }
+      }
     },
     "requestBodies": {
       "Form": { "content": { "application/x-www-form-urlencoded": { "schema": { "$ref": "#/components/schemas/NewItem" } } } }
@@ -31,7 +44,8 @@
         "parameters": [
           { "name": "limit", "in": "query", "schema": { "type": "integer" }, "description": "max rows" },
           { "name": "status", "in": "query", "required": true, "schema": { "type": "array", "items": { "type": "string" } }, "description": "one or more states" }
-        ]
+        ],
+        "responses": { "200": { "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Row" } }, "next": { "type": "string" } } } } } } }
       },
       "post": {
         "operationId": "describe", "summary": "Describe items", "tags": ["items"],
@@ -40,14 +54,45 @@
       }
     },
     "/users": {
-      "get": { "operationId": "list", "summary": "List users", "tags": ["users"] },
+      "get": { "operationId": "list", "summary": "List users", "tags": ["users"], "responses": { "default": { "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Row" } } } } } } },
       "post": { "operationId": "list", "summary": "Create a user", "tags": ["users"] }
     },
     "/items/{id}": {
-      "get": { "summary": "Get one item", "tags": ["items"], "parameters": [{ "$ref": "#/components/parameters/Id" }] }
+      "get": { "summary": "Get one item", "tags": ["items"], "parameters": [{ "$ref": "#/components/parameters/Id" }], "responses": { "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Row" } } } } } }
     },
     "/setup": {
       "post": { "operationId": "2faSetup", "summary": "Start 2FA setup", "tags": ["admin"], "security": [{ "mtls": [] }] }
+    },
+    "/reports/{id}": {
+      "get": {
+        "operationId": "getReport", "summary": "Download a report", "tags": ["items"],
+        "parameters": [
+          { "$ref": "#/components/parameters/Id" },
+          { "name": "X-Trace-Id", "in": "header", "schema": { "type": "string" }, "description": "trace id" },
+          { "name": "region", "in": "cookie", "schema": { "type": "string" }, "description": "data region" },
+          { "name": "Accept", "in": "header", "schema": { "type": "string" } },
+          { "name": "shard", "in": "matrix", "schema": { "type": "string" } },
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["pdf", "csv"], "default": "pdf", "example": "csv" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "content": { "application/pdf": {} } } }
+      }
+    },
+    "/uploads": {
+      "post": {
+        "operationId": "upload", "summary": "Upload a file", "tags": ["items"],
+        "requestBody": { "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"],
+          "properties": { "file": { "type": "string", "format": "binary" }, "label": { "type": "string" } } } } } }
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "createOrder", "summary": "Create an order", "tags": ["items"],
+        "requestBody": { "required": true, "content": {
+          "application/json": { "schema": { "$ref": "#/components/schemas/Order" } },
+          "application/x-www-form-urlencoded": { "schema": { "$ref": "#/components/schemas/Order" } }
+        } }
+      }
     }
   }
 }

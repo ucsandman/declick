@@ -1,0 +1,71 @@
+@e1 Window "Calculator" [1496,518] value="Calculator"
+  @e2 Button "Minimize Calculator" [1546,518]
+  @e3 Button "Maximize Calculator" [1592,518]
+  @e4 Button "Close Calculator" [1638,518]
+@e5 Window "Calculator" [1364,518]
+  @e6 Text "Calculator" [1412,526] value="Calculator"
+  @e7 Custom "" [1364,550]
+    @e8 Button "Open Navigation" [1368,556]
+    @e9 Group "" [1364,558]
+      @e10 Text "Display is 0" [1364,622]
+      @e11 Button "Open history flyout" [1644,558]
+      @e12 Group "Angle operators" [1368,670]
+        @e13 Button "Degrees toggle" [1368,670]
+        @e14 Button "Scientific notation" [1420,670] toggle=off
+      @e15 Group "Memory controls" [1368,706]
+        @e16 Button "Clear all memory" [1368,706] enabled=false
+        @e17 Button "Memory recall" [1420,706] enabled=false
+        @e18 Button "Memory add" [1472,706]
+        @e19 Button "Memory subtract" [1524,706]
+        @e20 Button "Memory store" [1576,706]
+        @e21 Button "Open memory flyout" [1630,706] enabled=false
+      @e22 List "Scientific operator panels" [1364,745]
+        @e23 ListItem "Trigonometry" [1367,747]
+          @e24 Button "Trigonometry" [1368,748] toggle=off
+            @e25 Text "Trigonometry" [1400,758] value="Trigonometry"
+        @e26 ListItem "Functions" [1502,747]
+          @e27 Button "Functions" [1503,748] toggle=off
+            @e28 Text "Function" [1535,758] value="Function"
+      @e29 Button "Inverse function" [1368,786] toggle=off
+      @e30 Button "Pi" [1431,786]
+      @e31 Button "Euler's number" [1494,786]
+      @e32 Group "Display controls" [1557,786]
+        @e33 Button "Clear" [1557,786]
+        @e34 Button "Backspace" [1620,786]
+      @e35 Group "Scientific functions" [1368,823]
+        @e36 Button "Square" [1368,823]
+        @e37 Button "Square root" [1368,861]
+        @e38 Button "'X' to the exponent" [1368,898]
+        @e39 Button "Ten to the exponent" [1368,936]
+        @e40 Button "Log" [1368,973]
+        @e41 Button "Natural log" [1368,1011]
+      @e42 Button "Reciprocal" [1431,823]
+      @e43 Button "Absolute value" [1494,823]
+      @e44 Button "Exponential" [1557,823]
+      @e45 Button "Modulo" [1620,823]
+      @e46 Button "Left parenthesis" [1431,861]
+      @e47 Button "Right parenthesis" [1494,861]
+      @e48 Button "Factorial" [1557,861]
+      @e49 Group "Standard operators" [1620,861]
+        @e50 Button "Divide by" [1620,861]
+        @e51 Button "Multiply by" [1620,898]
+        @e52 Button "Minus" [1620,936]
+        @e53 Button "Plus" [1620,973]
+        @e54 Button "Equals" [1620,1011]
+      @e55 Button "Positive negative" [1431,1011]
+      @e56 Group "Number pad" [1431,898]
+        @e57 Button "Zero" [1494,1011]
+        @e58 Button "One" [1431,973]
+        @e59 Button "Two" [1494,973]
+        @e60 Button "Three" [1557,973]
+        @e61 Button "Four" [1431,936]
+        @e62 Button "Five" [1494,936]
+        @e63 Button "Six" [1557,936]
+        @e64 Button "Seven" [1431,898]
+        @e65 Button "Eight" [1494,898]
+        @e66 Button "Nine" [1557,898]
+        @e67 Button "Decimal separator" [1557,1011]
+    @e68 Text "Scientific Calculator mode" [1412,559] value="Scientific"
+@e69 Pane "" [1364,550]
+@e79 Window "Settings" [1652,230] popup="Settings"
+# offscreen=2

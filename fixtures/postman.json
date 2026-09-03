@@ -1,0 +1,89 @@
+{
+  "info": {
+    "_postman_id": "6f1c0f0e-0000-4000-8000-000000000001",
+    "name": "Orders API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] },
+  "variable": [
+    { "key": "baseUrl", "value": "https://api.example.com" },
+    { "key": "version", "value": "v1" }
+  ],
+  "item": [
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "description": "List orders for the account",
+            "url": {
+              "raw": "{{baseUrl}}/{{version}}/orders?status=open&page={{page}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{version}}", "orders"],
+              "query": [
+                { "key": "status", "value": "open", "description": "open|shipped|closed" },
+                { "key": "page", "value": "{{page}}" }
+              ]
+            }
+          },
+          "response": [
+            {
+              "name": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\"orders\":[{\"id\":\"o_1\",\"total\":9.5,\"paid\":true}],\"next\":null}"
+            }
+          ]
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "description": "Fetch one order by id",
+            "url": {
+              "raw": "{{baseUrl}}/{{version}}/orders/:orderId",
+              "host": ["{{baseUrl}}"],
+              "path": ["{{version}}", "orders", ":orderId"],
+              "variable": [{ "key": "orderId", "value": "o_1" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Create order",
+      "request": {
+        "method": "POST",
+        "description": "Create an order",
+        "header": [
+          { "key": "X-Api-Key", "value": "{{apiKey}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/{{version}}/orders",
+          "host": ["{{baseUrl}}"],
+          "path": ["{{version}}", "orders"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sku\": \"{{sku}}\",\n  \"qty\": 2\n}",
+          "options": { "raw": { "language": "json" } }
+        }
+      }
+    },
+    {
+      "name": "Update order",
+      "request": {
+        "method": "PATCH",
+        "url": {
+          "raw": "{{baseUrl}}/{{version}}/orders/{{orderId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["{{version}}", "orders", "{{orderId}}"]
+        },
+        "body": { "mode": "urlencoded", "urlencoded": [{ "key": "status", "value": "shipped" }] }
+      }
+    }
+  ]
+}

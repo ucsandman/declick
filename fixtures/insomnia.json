@@ -1,0 +1,34 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-09-01T12:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v9.0.0",
+  "resources": [
+    { "_id": "wrk_1", "_type": "workspace", "name": "Notes API", "description": "" },
+    { "_id": "env_1", "_type": "environment", "parentId": "wrk_1", "name": "Base", "data": { "baseUrl": "https://notes.example.com", "shelf": "inbox" } },
+    { "_id": "fld_1", "_type": "request_group", "parentId": "wrk_1", "name": "Notes" },
+    {
+      "_id": "req_1", "_type": "request", "parentId": "fld_1", "name": "List notes",
+      "description": "List the notes in one notebook",
+      "method": "GET",
+      "url": "{{ _.baseUrl }}/notebooks/:notebookId/notes",
+      "parameters": [
+        { "name": "q", "value": "", "description": "full text search" },
+        { "name": "limit", "value": "20" }
+      ],
+      "headers": [{ "name": "Authorization", "value": "Bearer {{ _.token }}" }],
+      "body": {},
+      "authentication": {}
+    },
+    {
+      "_id": "req_2", "_type": "request", "parentId": "wrk_1", "name": "Create note",
+      "description": "Create a note on a shelf",
+      "method": "POST",
+      "url": "{{ _.baseUrl }}/notes",
+      "parameters": [],
+      "headers": [{ "name": "Content-Type", "value": "application/json" }],
+      "body": { "mimeType": "application/json", "text": "{\"title\": \"{{ _.title }}\", \"shelf\": \"{{ _.shelf }}\"}" },
+      "authentication": { "type": "bearer", "token": "{{ _.token }}" }
+    }
+  ]
+}

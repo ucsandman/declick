@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { request as httpRequest } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,11 +9,13 @@ import { join } from 'node:path';
 process.env.DECLICK_HOME = mkdtempSync(join(tmpdir(), 'declick-ui-'));
 process.env.DECLICK_SKILLS = join(process.env.DECLICK_HOME, 'skills');
 process.env.CREDS_VAULT = join(process.env.DECLICK_HOME, 'none.env');
+// The ui gates its mutating routes on governance: this suite drives its own guard, never the machine's.
+for (const k of ['DASHCLAW_API_KEY', 'DASHCLAW_URL', 'DECLICK_GUARD']) delete process.env[k];
 const { startUi, adapterRows } = await import('../src/ui.mjs');
 const { manifestDir } = await import('../src/manifest.mjs');
 const cli = a => spawnSync(process.execPath, ['bin/declick.mjs', ...a], { env: process.env, encoding: 'utf8' });
 const runtime = a => spawnSync(process.execPath, ['bin/run.mjs', ...a], { env: process.env, encoding: 'utf8' });
-const jsonHeaders = () => ({ origin: base, 'content-type': 'application/json' });
+const jsonHeaders = () => ({ origin: base, 'content-type': 'application/json', 'x-declick-token': server.token });
 const rawRequest = (path, headers) => new Promise((resolve, reject) => {
   const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, method: 'GET', headers }, res => {
     let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d }));
@@ -71,6 +73,21 @@ test('POST without a matching Origin, or without JSON content-type, is refused',
   const noContentType = await fetch(base + '/api/petstore/build', { method: 'POST', headers: { origin: base }, body: '{}' });
   assert.equal(noContentType.status, 403);
 });
+test('a POST without the page token is 401, whatever the origin says', async () => {
+  assert.match(server.token, /^[0-9a-f]{48}$/);
+  const none = await fetch(base + '/api/petstore/build', { method: 'POST', headers: { origin: base, 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(none.status, 401);
+  assert.match((await none.json()).error, /X-Declick-Token/);
+  const wrong = await fetch(base + '/api/add', { method: 'POST', headers: { ...jsonHeaders(), 'x-declick-token': 'nope' }, body: JSON.stringify({ source: 'fixtures/petstore.json' }) });
+  assert.equal(wrong.status, 401);
+  assert.equal((await fetch(base + '/api/adapters')).status, 200, 'a GET needs no token');
+});
+test('the page hands the browser the token and disables repair while authoring is off', async () => {
+  const html = await (await fetch(base + '/')).text();
+  assert.match(html, new RegExp(`const TOKEN = "${server.token}"`));
+  assert.match(html, /'x-declick-token': TOKEN/);
+  assert.match(html, /data-action="repair" disabled title="start with: declick ui --allow-authoring"/);
+});
 test('malformed JSON body answers 500 instead of crashing the server', async () => {
   const r = await fetch(base + '/api/add', { method: 'POST', headers: jsonHeaders(), body: 'not json' });
   assert.equal(r.status, 500);
@@ -97,9 +114,34 @@ test('POST /api/add validates source and name, then runs the CLI', async () => {
   assert.ok(adapterRows().some(row => row.name === 'petstore2'));
   cli(['remove', 'petstore2']);
 });
-test('POST repair without a recorded failure is 400', async () => {
-  const r = await fetch(base + '/api/petstore/repair', { method: 'POST', headers: jsonHeaders(), body: '{}' });
-  assert.equal(r.status, 400); assert.match((await r.json()).error, /no recorded failure/);
+test('repair and add --goal are 403 until the server is started with --allow-authoring', async () => {
+  const off = await fetch(base + '/api/petstore/repair', { method: 'POST', headers: jsonHeaders(), body: '{}' });
+  assert.equal(off.status, 403); assert.match((await off.json()).error, /declick ui --allow-authoring/);
+  const goal = await fetch(base + '/api/add', { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ source: 'app:Calculator', name: 'calc', goal: 'add two numbers' }) });
+  assert.equal(goal.status, 403); assert.match((await goal.json()).error, /declick ui --allow-authoring/);
+  const authoring = await startUi({ port: 0, allowAuthoring: true });
+  const b2 = `http://127.0.0.1:${authoring.address().port}`;
+  try {
+    const on = await fetch(b2 + '/api/petstore/repair', { method: 'POST', headers: { origin: b2, 'content-type': 'application/json', 'x-declick-token': authoring.token }, body: '{}' });
+    assert.equal(on.status, 400, 'authoring on: the route runs and finds nothing to repair');
+    assert.match((await on.json()).error, /no recorded failure/);
+    assert.notEqual(authoring.token, server.token, 'each start gets its own token');
+  } finally { await new Promise(r => authoring.close(r)); }
+});
+test('a mutating route is refused when governance blocks it', async () => {
+  const guard = createServer((req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"decision":"block","reason":"policy says no"}'); });
+  await new Promise(r => guard.listen(0, '127.0.0.1', r));
+  process.env.DASHCLAW_API_KEY = 'k'; process.env.DASHCLAW_URL = `http://127.0.0.1:${guard.address().port}`;
+  try {
+    const r = await fetch(base + '/api/petstore/remove', { method: 'POST', headers: jsonHeaders(), body: '{}' });
+    assert.equal(r.status, 403);
+    const j = await r.json();
+    assert.match(j.error, /blocked by governance: policy says no/); assert.equal(j.decision, 'block');
+    assert.ok(existsSync(join(manifestDir('petstore'), 'manifest.json')), 'a blocked remove changed nothing');
+  } finally {
+    delete process.env.DASHCLAW_API_KEY; delete process.env.DASHCLAW_URL;
+    guard.closeAllConnections(); await new Promise(r => guard.close(r));
+  }
 });
 test('POST build reruns the CLI and reports exit 0', async () => {
   const r = await fetch(base + '/api/petstore/build', { method: 'POST', headers: jsonHeaders(), body: '{}' });

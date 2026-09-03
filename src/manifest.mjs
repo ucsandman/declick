@@ -4,12 +4,25 @@ import { join } from 'node:path';
 
 export const HOME = process.env.DECLICK_HOME || join(homedir(), '.declick');
 export const MANIFEST_VERSION = 1;
-const ENGINES = ['openapi', 'desktop', 'mcp', 'web'];
+const ENGINES = ['openapi', 'desktop', 'mcp', 'web', 'graphql', 'postman', 'har', 'sqlite', 'cli'];
 export const KEBAB = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 // Prefixed vendor tokens anywhere in a string, or a bare 32+ char token that is the whole string.
 const SECRETISH = /\b(sk|pk|ghp|xox[abp])[-_][A-Za-z0-9_-]{12,}|\bAKIA[A-Z0-9]{16}\b|^[A-Za-z0-9]{32,}$/;
-// Fields declick generates itself: names, paths and env key names are never secrets and often look like tokens.
-const SKIP_KEYS = new Set(['name', 'path', 'source', 'window', 'env', 'builtAt', 'baseUrl', 'as', 'find', 'read', 'click', 'returns', 'tree']);
+// Fields declick generates itself: names, paths, commands and env key names are never secrets and often look like tokens.
+// Lists count too (auth.env, a cli argv, a desktop find path): a key name long enough to look like a token is still a key name.
+const SKIP_KEYS = new Set(['name', 'path', 'source', 'window', 'env', 'builtAt', 'baseUrl', 'as', 'find', 'read', 'click', 'returns', 'tree',
+  'argv', 'command', 'goto', 'table', 'sql', 'selection', 'wire']);
+
+// Spec text lands verbatim in SKILL.md and in describe output, so every field an agent reads back
+// has to be one bounded line: no newlines, no backticks, no leading # to open a markdown heading.
+const textErr = (val, what, max) => {
+  if (typeof val !== 'string') return null;
+  if (/[\r\n]/.test(val)) return `${what} must be one line`;
+  if (val.includes('`')) return `${what} must not contain backticks`;
+  if (/^\s*#/.test(val)) return `${what} must not start with #`;
+  if (val.length > max) return `${what} must be ${max} chars or fewer`;
+  return null;
+};
 
 export const assertName = (name, what = 'adapter name') => {
   if (!KEBAB.test(String(name))) throw Object.assign(new Error(`bad ${what} ${JSON.stringify(name)}: must be kebab-case`), { exit: 1 });
@@ -22,18 +35,24 @@ export function validateManifest(m) {
   if (!KEBAB.test(m.name || '')) errs.push(`name ${JSON.stringify(m.name)} must be kebab-case`);
   if (!ENGINES.includes(m.engine)) errs.push(`engine must be one of ${ENGINES.join(', ')}`);
   if (typeof m.source !== 'string' || !m.source) errs.push('source required');
+  const text = (val, what, max) => { const e = textErr(val, what, max); if (e) errs.push(e); };
+  text(m.source, 'source', 500); text(m.window, 'window', 500); text(m.baseUrl, 'baseUrl', 500);
   if (!Array.isArray(m.verbs) || m.verbs.length === 0) errs.push('verbs must be a non-empty array');
   else m.verbs.forEach((v, i) => {
     if (!KEBAB.test(v.name || '')) errs.push(`verbs[${i}].name must be kebab-case`);
     if (typeof v.description !== 'string' || !v.description) errs.push(`verbs[${i}].description required`);
-    else if (/[\r\n`]/.test(v.description)) errs.push(`verbs[${i}].description must be one line without backticks`);
+    else text(v.description, `verbs[${i}].description`, 200);
     if (typeof v.mutating !== 'boolean') errs.push(`verbs[${i}].mutating must be boolean`);
     if (!Array.isArray(v.args)) errs.push(`verbs[${i}].args must be an array`);
+    else v.args.forEach((a, j) => { text(a?.name, `verbs[${i}].args[${j}].name`, 100); text(a?.description, `verbs[${i}].args[${j}].description`, 200); });
+    if (Array.isArray(v.flags)) v.flags.forEach((f, j) => { text(f?.name, `verbs[${i}].flags[${j}].name`, 100); text(f?.description, `verbs[${i}].flags[${j}].description`, 200); });
+    if (v.returns) { text(v.returns.rowsPath, `verbs[${i}].returns.rowsPath`, 100); (v.returns.fields || []).forEach((f, j) => text(f?.name, `verbs[${i}].returns.fields[${j}].name`, 100)); }
   });
   if (!m.auth || !Array.isArray(m.auth.env)) errs.push('auth.env must be an array of key names');
+  else m.auth.env.forEach((e, i) => text(e, `auth.env[${i}]`, 100));
   const scan = (obj, path) => {
     for (const [k, val] of Object.entries(obj || {})) {
-      if (SKIP_KEYS.has(k) && typeof val === 'string') continue;
+      if (SKIP_KEYS.has(k) && (typeof val === 'string' || Array.isArray(val))) continue;
       if (typeof val === 'string' && SECRETISH.test(val)) errs.push(`possible secret at ${path}.${k}`);
       else if (val && typeof val === 'object') scan(val, `${path}.${k}`);
     }
