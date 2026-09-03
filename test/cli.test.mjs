@@ -261,6 +261,19 @@ test('a launcher never shadows an executable that is already on PATH', () => {
   assert.ok(!existsSync(join(home, 'bin', 'node.cmd')));
 });
 
+test('a refused desktop add leaves no recipes directory behind', () => {
+  // The launcher preflight refuses before any write, even though recipes arrive before the manifest.
+  const shadow = run(['add', 'app:Calculator', '--name', 'node', '--recipes', 'fixtures/calculator']);
+  assert.equal(shadow.status, 1, shadow.stdout); assert.match(J(shadow).error, /node already resolves to/);
+  assert.ok(!existsSync(join(home, 'node')), 'no adapter directory after a shadow refusal');
+  // A recipe that imports cleanly but fails lint rolls the import back for a fresh adapter.
+  const dir = join(home, 'long-desc'); mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'add.json'), JSON.stringify({ ...JSON.parse(readFileSync('fixtures/calculator/add.json', 'utf8')), description: 'x'.repeat(81) }));
+  const lint = run(['add', 'app:Calculator', '--name', 'lintfail', '--recipes', dir]);
+  assert.equal(lint.status, 1, lint.stdout); assert.match(J(lint).error, /description over 80 chars/);
+  assert.ok(!existsSync(join(home, 'lintfail')), 'no adapter directory after a lint refusal');
+});
+
 test('remove <name> <verb> resolves the verb before touching disk', () => {
   assert.equal(run(['add', 'fixtures/petstore.json', '--name', 'pets']).status, 0);
   const bogus = run(['remove', 'pets', 'bogus']);

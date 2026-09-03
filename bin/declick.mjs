@@ -129,13 +129,21 @@ async function build(source, flags, dry = false) {
   const engine = pickEngine(source, flags.engine);
   const name = engine === 'desktop' ? adapterName(source, flags) : flags.name ? adapterName(source, flags) : undefined;
   // A preview never lands recipes in the store: the engine compiles straight from the given directory instead.
-  if (engine === 'desktop' && flags.recipes && !dry) importRecipes(name, flags.recipes, { verb: flags.verb });
+  // Recipes are the one write that precedes compile, so the refusals run first and a fresh adapter rolls back on a lint failure.
+  const fresh = engine === 'desktop' && flags.recipes && !dry && !existsSync(manifestDir(name));
+  if (engine === 'desktop' && flags.recipes && !dry) { canWriteLauncher(name, { force: !!flags.force }); canWriteSkill(name, { force: !!flags.force }); importRecipes(name, flags.recipes, { verb: flags.verb }); }
   if (engine === 'desktop' && flags.recipes && dry && (flags.recipes === '-' || !existsSync(flags.recipes) || !statSync(flags.recipes).isDirectory())) fail('--dry-run needs a recipes directory; a single file or - has to be imported first');
-  const m = await engines[engine].compile(source, { name, goal: flags.goal, verbs: flags.verbs, tag: flags.tag, host: flags.host, url: flags.url, ...(dry && flags.recipes ? { recipes: flags.recipes } : {}) });
-  const errs = lint(m);
-  // Over budget is a choice about which verbs to keep, so the error carries the names --verbs would take.
-  if (errs.some(e => /^describe is \d+ chars/.test(e))) errs.push(`verbs: ${m.verbs.slice(0, 30).map(v => v.name).join(', ')}${m.verbs.length > 30 ? ` ... (${m.verbs.length} total)` : ''}`);
-  if (errs.length) fail(`lint failed:\n  ${errs.join('\n  ')}`);
+  let m;
+  try {
+    m = await engines[engine].compile(source, { name, goal: flags.goal, verbs: flags.verbs, tag: flags.tag, host: flags.host, url: flags.url, ...(dry && flags.recipes ? { recipes: flags.recipes } : {}) });
+    const errs = lint(m);
+    // Over budget is a choice about which verbs to keep, so the error carries the names --verbs would take.
+    if (errs.some(e => /^describe is \d+ chars/.test(e))) errs.push(`verbs: ${m.verbs.slice(0, 30).map(v => v.name).join(', ')}${m.verbs.length > 30 ? ` ... (${m.verbs.length} total)` : ''}`);
+    if (errs.length) fail(`lint failed:\n  ${errs.join('\n  ')}`);
+  } catch (e) {
+    if (fresh) rmSync(manifestDir(name), { recursive: true, force: true });
+    throw e;
+  }
   if (dry) return m;
   // Every check that can refuse runs before the first write, so a refusal leaves no half-built adapter.
   canWriteLauncher(m.name, { force: !!flags.force }); canWriteSkill(m.name, { force: !!flags.force });
