@@ -12,7 +12,7 @@ const SECRETISH = /\b(sk|pk|ghp|xox[abp])[-_][A-Za-z0-9_-]{12,}|\bAKIA[A-Z0-9]{1
 // Fields declick generates itself: names, paths, commands and env key names are never secrets and often look like tokens.
 // Lists count too (auth.env, a cli argv, a desktop find path): a key name long enough to look like a token is still a key name.
 const SKIP_KEYS = new Set(['name', 'path', 'source', 'window', 'env', 'builtAt', 'baseUrl', 'as', 'find', 'read', 'click', 'returns', 'tree',
-  'argv', 'command', 'goto', 'table', 'sql', 'selection', 'wire']);
+  'argv', 'command', 'goto', 'table', 'sql', 'selection', 'wire', 'example', 'default']);
 
 // Spec text lands verbatim in SKILL.md and in describe output, so every field an agent reads back
 // has to be one bounded line: no newlines, no backticks, no leading # to open a markdown heading.
@@ -68,7 +68,8 @@ export function validateManifest(m) {
 function normText(s, max) {
   if (typeof s !== 'string') return s;
   const flat = oneLine(s).replace(/^\s*#+\s*/, '');
-  const sentence = (flat.match(/^[^.!?]*[.!?]/)?.[0] ?? flat).trim();
+  // A period between digits (2.5km, v3.1) is not a sentence end.
+  const sentence = (flat.match(/^(?:[^.!?]|\.(?=\d))*[.!?](?!\d)/)?.[0] ?? flat).trim();
   if (sentence.length <= max) return sentence;
   const cut = flat.slice(0, max);
   const sp = cut.lastIndexOf(' ');

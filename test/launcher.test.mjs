@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join, delimiter } from 'node:path';
 
 // This suite measures real Windows argument-passing through the generated shims (a batch file needs
@@ -22,7 +22,7 @@ const declick = args => spawnSync(process.execPath, ['bin/declick.mjs', ...args]
 // import runs -- a static import would run before this test file's own top-level code has a chance
 // to set it, and would then point every helper below at the real user's ~/.declick.
 process.env.DECLICK_HOME = home;
-const { shadows, canWriteLauncher, writeLauncher, removeLauncher, binDir } = await import('../src/launcher.mjs');
+const { shadows, canWriteLauncher, writeLauncher, removeLauncher, binDir, profileFile, pathHint } = await import('../src/launcher.mjs');
 
 if (WIN) {
   const add = declick(['add', 'fixtures/petstore.json', '--name', 'petstore']);
@@ -163,5 +163,80 @@ test('the .cmd twin is written only on windows; the bash shim is written on ever
     assert.ok(existsSync(join(binDir(), name)), 'bash shim must exist on every platform');
   } finally {
     removeLauncher(name);
+  }
+});
+
+// Regression: `declick path --install` used to append unconditionally to ~/.profile, which zsh (the
+// macOS default login shell since Catalina) never reads -- the short-form install left every macOS
+// user's PATH untouched with no error. profileFile() must pick the file the login shell actually
+// sources, keyed off $SHELL.
+test('profileFile returns null on windows -- path --install uses setx, not a profile file', { skip: !WIN && 'windows-only' }, () => {
+  assert.equal(profileFile(), null);
+});
+
+test('profileFile picks ~/.zprofile for a zsh login shell, which ~/.profile would never reach', { skip: WIN && 'posix-only' }, () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = '/bin/zsh';
+    assert.equal(profileFile(), join(homedir(), '.zprofile'));
+  } finally {
+    process.env.SHELL = saved;
+  }
+});
+
+test('profileFile picks ~/.config/fish/config.fish for a fish login shell', { skip: WIN && 'posix-only' }, () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = '/usr/bin/fish';
+    assert.equal(profileFile(), join(homedir(), '.config', 'fish', 'config.fish'));
+  } finally {
+    process.env.SHELL = saved;
+  }
+});
+
+test('profileFile falls back to ~/.profile for a login shell that is neither zsh, fish, nor darwin bash', { skip: WIN && 'posix-only' }, () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = '/bin/sh';
+    assert.equal(profileFile(), join(homedir(), '.profile'));
+  } finally {
+    process.env.SHELL = saved;
+  }
+});
+
+// bash on darwin is the one branch that depends on this machine's real home directory: it prefers
+// ~/.bash_profile only when that file already exists there, else falls back to ~/.profile like
+// every other posix shell -- so assert the disjunction, mirroring the implementation, not a single
+// hardcoded answer that would be right on some runners and wrong on others.
+test('profileFile on a darwin bash login shell matches its own existsSync(~/.bash_profile) check', { skip: WIN && 'posix-only' }, () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = '/bin/bash';
+    const want = process.platform === 'darwin' && existsSync(join(homedir(), '.bash_profile')) ? join(homedir(), '.bash_profile') : join(homedir(), '.profile');
+    assert.equal(profileFile(), want);
+  } finally {
+    process.env.SHELL = saved;
+  }
+});
+
+test('pathHint uses fish_add_path (idempotent) for a fish login shell, not a plain append that would grow PATH every shell', { skip: WIN && 'posix-only' }, () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = '/usr/bin/fish';
+    assert.match(pathHint(), /fish_add_path "/);
+    assert.doesNotMatch(pathHint(), /set -gx PATH \$PATH/);
+  } finally {
+    process.env.SHELL = saved;
+  }
+});
+
+test('pathHint uses a plain export for a zsh login shell and points at ~/.zprofile', { skip: WIN && 'posix-only' }, () => {
+  const saved = process.env.SHELL;
+  try {
+    process.env.SHELL = '/bin/zsh';
+    assert.match(pathHint(), /export PATH="\$PATH:/);
+    assert.match(pathHint(), />> ~\/\.zprofile$/);
+  } finally {
+    process.env.SHELL = saved;
   }
 });

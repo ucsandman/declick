@@ -1,5 +1,5 @@
 import { loadEnv, vaultPath, mintHint } from '../creds.mjs';
-import { EXIT, RESERVED, camel } from '../output.mjs';
+import { EXIT, RESERVED, camel, rowsPropertyOf } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 import { assertName } from '../manifest.mjs';
 import { mcpClient } from '../mcp-client.mjs';
@@ -59,8 +59,9 @@ function returnsOf(schema) {
   const cap = f => ({ fields: f.slice(0, 30), ...(f.length > 30 ? { truncated: true } : {}) });
   if (isList(schema)) return { shape: 'array', ...cap(props(schema.items)) };
   if (!schema.properties && schema.type !== 'object') return { shape: 'scalar', fields: [] };
-  const lists = Object.entries(schema.properties || {}).filter(([, x]) => isList(x));
-  if (lists.length === 1) return { shape: 'object', rowsPath: oneLine(lists[0][0], 100), ...cap(props(lists[0][1].items)) };
+  const propList = Object.entries(schema.properties || {}).map(([n, x]) => ({ name: n, isList: isList(x) }));
+  const rowsPath = rowsPropertyOf(propList);
+  if (rowsPath) return { shape: 'object', rowsPath: oneLine(rowsPath, 100), ...cap(props(schema.properties[rowsPath].items)) };
   return { shape: 'object', ...cap(props(schema)) };
 }
 

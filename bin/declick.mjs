@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, rmSync, readdirSync, statSync, writeFileSync, appendFileSync, openSync, readSync, closeSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, readdirSync, statSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { HOME, KEBAB, loadManifest, saveManifest, listManifests, manifestDir } from '../src/manifest.mjs';
+import { HOME, KEBAB, loadManifest, saveManifest, listManifests, manifestDir, normalizeManifest } from '../src/manifest.mjs';
 import { describe, describeJson } from '../src/describe.mjs';
 import { lint } from '../src/lint.mjs';
 import { parseFlags, emit, camel, BOOLS, EXIT } from '../src/output.mjs';
-import { writeLauncher, removeLauncher, canWriteLauncher, binDir, onPath, pathHint } from '../src/launcher.mjs';
+import { writeLauncher, removeLauncher, canWriteLauncher, binDir, onPath, pathHint, profileFile } from '../src/launcher.mjs';
 import { writeSkill, writeSelfSkill, removeSkill, canWriteSkill, skillDirs, skillText } from '../src/skill.mjs';
 import { importRecipes, loadRecipe, listRecipes, removeRecipe, recipesDir, validateStoredRecipe } from '../src/recipes.mjs';
 import { author } from '../src/author.mjs';
@@ -123,13 +123,20 @@ function distance(a, b) {
   }
   return d[b.length];
 }
-const nearest = (word, list, max = 3, take = 3) => list.map(n => [n, distance(word, n)]).filter(([, d]) => d <= max).sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).slice(0, take).map(([n]) => n);
+// A prefix or substring match outranks edit distance (descr -> describe, verbss -> verbs), same rule as the runtime's nearest.
+const nearest = (word, list, max = 3, take = 3) => {
+  const rank = n => (word && n.startsWith(word)) ? 0 : (word && n.includes(word)) ? 1 : 2;
+  return list.map(n => [n, rank(n), distance(word, n)]).filter(([, r, d]) => r < 2 || d <= max)
+    .sort((a, b) => a[1] - b[1] || a[2] - b[2] || a[0].localeCompare(b[0])).slice(0, take).map(([n]) => n);
+};
 // An unknown command answers with the nearest names, never with the whole usage blob: the agent asked for one thing.
 const unknownCommand = c => `unknown command ${c}${nearest(c, COMMANDS.map(x => x.name)).length ? `; did you mean ${nearest(c, COMMANDS.map(x => x.name)).join(', ')}?` : ''}; run: declick commands`;
 
 const fail = (msg, exit = EXIT.ERROR, data) => { throw Object.assign(new Error(msg), { exit, ...(data !== undefined ? { data } : {}) }); };
 // A lint report can run hundreds of lines (a big spec, every verb over budget); the error string stays skimmable, the full list rides in data.
 const lintFailMsg = errs => `lint failed: ${errs.slice(0, 8).join('; ')}${errs.length > 8 ? ` ... and ${errs.length - 8} more` : ''}`;
+// data.errors rides the full list on stdout for a real spec that's hundreds of lines over budget; cap it and keep the true count in errorCount.
+const lintErrorsData = errs => ({ errors: errs.slice(0, 50), errorCount: errs.length });
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').split('-').slice(0, 4).join('-');
 const adapterName = (source, flags) => flags.name ? (KEBAB.test(flags.name) ? flags.name : fail(`name ${JSON.stringify(flags.name)} must be kebab-case; use --name ${slug(flags.name)}`)) : slug(source.replace(/^app:/, ''));
 const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
@@ -141,6 +148,11 @@ const proposals = name => { const dir = join(manifestDir(name), 'proposals'); re
 
 async function build(source, flags, dry = false) {
   const engine = pickEngine(source, flags.engine);
+  // pickEngine falls back to web only when a plain url routed there on its own (html body, or no spec-shaped
+  // extension); an explicit web: source or a forced --engine web means the caller already knows what this is.
+  if (engine === 'web' && flags.engine !== 'web' && !String(source).startsWith('web:')) {
+    fail(`${source} is a web page, not an API spec. For a browser adapter: declick add web:${source} --recipes <dir>. For an API, give the OpenAPI/Swagger spec URL (declick engines --source ${source} says how a source would route).`);
+  }
   const name = engine === 'desktop' ? adapterName(source, flags) : flags.name ? adapterName(source, flags) : undefined;
   // A preview never lands recipes in the store: the engine compiles straight from the given directory instead.
   // Recipes are the one write that precedes compile, so the refusals run first and a fresh adapter rolls back on a lint failure.
@@ -149,11 +161,11 @@ async function build(source, flags, dry = false) {
   if (engine === 'desktop' && flags.recipes && dry && (flags.recipes === '-' || !existsSync(flags.recipes) || !statSync(flags.recipes).isDirectory())) fail('--dry-run needs a recipes directory; a single file or - has to be imported first');
   let m;
   try {
-    m = await engines[engine].compile(source, { name, goal: flags.goal, verbs: flags.verbs, tag: flags.tag, host: flags.host, url: flags.url, ...(dry && flags.recipes ? { recipes: flags.recipes } : {}) });
+    m = normalizeManifest(await engines[engine].compile(source, { name, goal: flags.goal, verbs: flags.verbs, tag: flags.tag, host: flags.host, url: flags.url, ...(dry && flags.recipes ? { recipes: flags.recipes } : {}) }));
     const errs = lint(m);
     // Over budget is a choice about which verbs to keep, so the error carries the names --verbs would take.
     if (errs.some(e => /^describe is \d+ chars/.test(e))) errs.push(`verbs: ${m.verbs.slice(0, 30).map(v => v.name).join(', ')}${m.verbs.length > 30 ? ` ... (${m.verbs.length} total)` : ''}`);
-    if (errs.length) fail(lintFailMsg(errs), EXIT.ERROR, { errors: errs });
+    if (errs.length) fail(lintFailMsg(errs), EXIT.ERROR, lintErrorsData(errs));
   } catch (e) {
     if (fresh) rmSync(manifestDir(name), { recursive: true, force: true });
     throw e;
@@ -299,6 +311,7 @@ function sniffSource(source) {
   const info = ENGINE_INFO.find(e => e.name === engine);
   const ready = !!info?.ready;
   const next = !engine ? 'declick engines lists what this build can compile'
+    : ready && engine === 'web' && !/^web:/i.test(source) ? `declick add web:${/\s/.test(source) ? JSON.stringify(source) : source} --recipes <dir>`
     : ready ? `declick add ${/\s/.test(source) ? JSON.stringify(source) : source}${engine === 'desktop' ? ' --name <name>' : ''}`
       : `${engine} is not ready here: ${info?.note ?? 'unsupported on this platform'}`;
   return { engine, ready, why, next };
@@ -371,7 +384,26 @@ const raw = process.argv.slice(2);
 let flags = {}, positional = [];
 // Every boolean in the command table is a boolean to the parser too, so `--interactive Calculator` keeps its window.
 const MGMT_BOOLS = new Set([...BOOLS, ...COMMANDS.flatMap(c => c.flags.filter(f => f.type === 'boolean').map(f => camel(f.name)))]);
-try { ({ positional, flags } = parseFlags(raw, MGMT_BOOLS)); } catch (e) { console.error(e.message); process.exit(e.exit ?? 1); }
+// A malformed flag (--limit 0) is a failure like any other: the envelope on stdout when --json was asked for or
+// stdout is piped, one error line otherwise. flags is still {} here, so read --json straight off the raw tokens.
+const explicitJson = () => {
+  const end = raw.indexOf('--'); const scan = end === -1 ? raw : raw.slice(0, end);
+  for (let i = scan.length - 1; i >= 0; i--) {
+    const a = scan[i]; if (!a.startsWith('--')) continue;
+    const [k, eq] = a.slice(2).split('=');
+    if (k === 'no-json') return false;
+    if (k !== 'json') continue;
+    const val = eq ?? (scan[i + 1] === 'true' || scan[i + 1] === 'false' ? scan[i + 1] : 'true');
+    return val !== 'false';
+  }
+  return undefined;
+};
+try { ({ positional, flags } = parseFlags(raw, MGMT_BOOLS)); } catch (e) {
+  const code = e.exit ?? 1;
+  if (explicitJson() ?? !process.stdout.isTTY) process.stdout.write(JSON.stringify({ ok: false, error: e.message, exit: code }) + '\n');
+  else process.stderr.write(`error: ${e.message}\n`);
+  process.exit(code);
+}
 const [cmd, arg, arg2] = positional;
 const json = flags.json ?? !process.stdout.isTTY;
 const dry = !!flags.dryRun;
@@ -470,7 +502,7 @@ try {
       if (flags.schema) { result = { ok: true, data: MANIFEST_SCHEMA }; text = JSON.stringify(MANIFEST_SCHEMA, null, 2); break; }
       const m = loadManifest(arg); result = { ok: true, data: flags.verb ? { ...m, verbs: m.verbs.filter(v => v.name === flags.verb) } : m }; text = JSON.stringify(result.data, null, 2); break;
     }
-    case 'lint': { const errs = lint(loadManifest(arg)); result = errs.length ? { ok: false, exit: EXIT.ERROR, error: `${arg}: ${errs.length} contract error(s)`, data: { errors: errs } } : { ok: true, data: { name: arg, errors: [], verbs: loadManifest(arg).verbs.length } }; text = errs.length ? errs.join('\n') : `${arg}: contract ok (${result.data.verbs} verbs)`; break; }
+    case 'lint': { const errs = lint(loadManifest(arg)); result = errs.length ? { ok: false, exit: EXIT.ERROR, error: `${arg}: ${errs.length} contract error(s)`, data: lintErrorsData(errs) } : { ok: true, data: { name: arg, errors: [], verbs: loadManifest(arg).verbs.length } }; text = errs.length ? errs.join('\n') : `${arg}: contract ok (${result.data.verbs} verbs)`; break; }
     case 'list': {
       const rows = adapterRows().map(r => ({ ...r, verbs: r.error ? [] : loadManifest(r.name).verbs.map(v => v.name), auth: r.error ? [] : loadManifest(r.name).auth?.env || [] }));
       result = { ok: true, data: rows };
@@ -511,7 +543,7 @@ try {
       if (flags.install && !data.onPath) {
         if (dry) data.installed = null;
         else if (process.platform === 'win32') { const r = spawnSync('powershell', ['-NoProfile', '-Command', `[Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH','User') + ';${binDir()}', 'User')`], { encoding: 'utf8' }); if (r.status !== 0) fail(`could not update user PATH: ${r.stderr.trim()}`); data.installed = 'user PATH (new shells only)'; }
-        else { appendFileSync(join(homedir(), '.profile'), `\nexport PATH="$PATH:${binDir()}"\n`); data.installed = '~/.profile (new shells only)'; }
+        else { const file = profileFile(); const fish = file.endsWith('config.fish'); mkdirSync(dirname(file), { recursive: true }); appendFileSync(file, `\n${fish ? `fish_add_path "${binDir()}"` : `export PATH="$PATH:${binDir()}"`}\n`); data.installed = `${file.replace(homedir(), '~')} (new shells only)`; }
       }
       result = { ok: true, data }; break;
     }
@@ -566,8 +598,12 @@ try {
       let bundle = JSON.parse(src);
       // export (and import --example) print the {ok,data,meta} envelope whenever stdout is piped or redirected, which is the common case; unwrap it here so the round trip works without asking for --json false.
       if (bundle.ok === true && bundle.data?.manifest) bundle = bundle.data;
+      // import takes an untrusted bundle (a file, or stdin), not a spec fetched from a vendor: lint runs on
+      // the raw manifest, same as always, so injected multi-line/backtick/leading-# text is refused outright
+      // instead of silently flattened by normalizeManifest and accepted. saveManifest below still normalizes
+      // benign long text on the way to disk, once lint has already cleared the hostile cases.
       const m = bundle.manifest || fail('bundle needs a manifest field');
-      const errs = lint(m); if (errs.length) fail(lintFailMsg(errs), EXIT.ERROR, { errors: errs });
+      const errs = lint(m); if (errs.length) fail(lintFailMsg(errs), EXIT.ERROR, lintErrorsData(errs));
       const recipes = Object.entries(bundle.recipes || {});
       for (const [verb, recipe] of recipes) { const e = validateStoredRecipe(recipe); if (e.length) fail(`invalid recipe ${verb}.json: ${e.join('; ')}`); }
       // Importing over an adapter that answers to a different service is a silent hijack; name what moved.

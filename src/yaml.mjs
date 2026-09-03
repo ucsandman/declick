@@ -115,8 +115,16 @@ export function parseYaml(text) {
       p++; while (text[p] === ' ') p++;
       return { key: r.value, rest: text.slice(p) };
     }
-    const m = /^([^:\s][^:]*?):(\s+(.*)|$)/.exec(text);
-    return m ? { key: m[1], rest: (m[3] || '').trim() } : null;
+    // A plain key may itself contain ':' (OAuth scopes like write:pets, read:pets); per YAML
+    // the split point is the FIRST colon that is followed by whitespace or end-of-line, not the
+    // first colon anywhere. A leading ':' or whitespace means this line isn't a mapping entry.
+    if (text[0] === ':' || /\s/.test(text[0])) return null;
+    for (let i = 1; i < text.length; i++) {
+      if (text[i] === ':' && (i + 1 === text.length || /\s/.test(text[i + 1]))) {
+        return { key: text.slice(0, i), rest: text.slice(i + 1).trim() };
+      }
+    }
+    return null;
   }
   function parseFlow(s, idx) {
     let p = 0;
@@ -148,7 +156,14 @@ export function parseYaml(text) {
         skipWs();
         let key;
         if (s[p] === '"' || s[p] === "'") { const r = (s[p] === '"' ? parseDoubleAt : parseSingleAt)(s, p); p = r.end; key = r.value; }
-        else { const start = p; while (p < s.length && s[p] !== ':') p++; key = s.slice(start, p).trim(); }
+        else {
+          // Same rule as splitKeyValue's plain-key scan, adapted to flow terminators: the key ends
+          // at the first ':' followed by whitespace, ',', '}' or end-of-input; a ':' followed by
+          // anything else (OAuth scopes like write:pets) is part of the key, not the delimiter.
+          const start = p;
+          while (p < s.length && !(s[p] === ':' && (p + 1 === s.length || /[\s,}]/.test(s[p + 1])))) p++;
+          key = s.slice(start, p).trim();
+        }
         skipWs(); if (s[p] !== ':') err('expected : in flow mapping', idx); p++;
         setKey(obj, key, value(), idx); skipWs();
         if (s[p] === ',') { p++; skipWs(); if (s[p] === '}') { p++; break; } continue; }

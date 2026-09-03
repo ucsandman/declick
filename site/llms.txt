@@ -34,7 +34,7 @@
 
 ## Governance
 
-- Opt in: set DASHCLAW_API_KEY and DASHCLAW_URL. Unset, a mutating call prints one warning line and proceeds, and meta.governance.enabled reads false.
+- Opt in: set DASHCLAW_API_KEY and DASHCLAW_URL. Unset, a mutating call proceeds with nothing on stderr, and meta.governance reads {enabled:false, decision:"skipped", reason:"no guard configured"}; exit 3 never happens from governance without a key.
 - Set, strict is the default: a guard that is unreachable, times out, or answers anything but a decision is exit 3. DECLICK_GUARD=open restores warn-and-proceed on a guard failure; a block or require_approval the guard actually returns is refused either way.
 - Every invocation appends one line to ~/.declick/audit.jsonl; declick audit reads it newest first. DECLICK_AUDIT=off turns the log off.
 - A key is scoped to the origin the adapter was built against; a request to another host does not get it, exit 4, unless the name is listed in DECLICK_ENV_ALLOW, or the origin change is explicit on the command line via --base-url, which warns and records scopedTo and sentTo in meta.credentials.

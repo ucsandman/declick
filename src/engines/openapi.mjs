@@ -1,7 +1,7 @@
 import { existsSync, openAsBlob, readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { loadEnv, vaultPath, mintHint } from '../creds.mjs';
-import { EXIT, RESERVED, camel } from '../output.mjs';
+import { EXIT, RESERVED, camel, rowsPropertyOf } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 import { toOpenApi3 } from './swagger2.mjs';
 import { isYaml, parseYaml } from '../yaml.mjs';
@@ -15,6 +15,12 @@ const SENDABLE = new Set(['apiKey', 'http', 'oauth2', 'openIdConnect']);
 const LOCATIONS = ['path', 'query', 'header', 'cookie'];
 // Accept, Content-Type and Authorization are the response and body contract, not parameters an agent fills.
 const NOT_A_FLAG = /^(accept|content-type|authorization)$/i;
+// A header the API demands from every caller, even one modeled in the spec as an apiKey security scheme,
+// is not a secret: it never gates a call behind auth, it is an ordinary flag.
+const CONTRACT_HEADER = /^(user-agent|accept|content-type|accept-language)$/i;
+// Read once, on first use: the engine layer does not touch the filesystem at import time.
+let declickVersion;
+const DECLICK_VERSION = () => (declickVersion ??= JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version);
 const RETRY_STATUS = new Set([429, 502, 503, 504]);
 // A body declick can read back as rows; anything else is bytes and needs --output.
 const TEXTISH = /json|text|xml|urlencoded|javascript|csv|^$/i;
@@ -46,11 +52,14 @@ function deref(spec, node) {
 }
 
 function serversOf(spec, source) {
-  const list = spec.servers?.length ? spec.servers : [{}];
+  // No servers at all means the spec never named its own host: per OpenAPI 3, the implied server url is
+  // '/', resolved against the document's own url, i.e. the document's origin, not the document's directory.
+  const noServers = !spec.servers?.length;
+  const list = noServers ? [{}] : spec.servers;
   return list.map(server => {
     let url = server.url || '';
     for (const [k, v] of Object.entries(server.variables || {})) url = url.replaceAll(`{${k}}`, v.default ?? '');
-    if (isUrl(source)) url = new URL(url || '.', source).toString();
+    if (isUrl(source)) url = new URL(url || (noServers ? '/' : '.'), source).toString();
     else if (url && !isUrl(url)) throw fail(`server url ${url} is relative and ${source} is a file, so the host is unknown; add the spec by its URL instead`);
     return { url: url.replace(/\/$/, ''), ...(server.description ? { description: oneLine(server.description, 200) } : {}) };
   });
@@ -108,8 +117,10 @@ function returnsOf(spec, op) {
   if (!type || !Object.keys(schema).length) return { shape: 'none', fields: [] };
   if (isList(schema)) return { shape: 'array', ...cap(props(deref(spec, schema.items))) };
   if (!schema.properties && schema.type !== 'object') return { shape: 'scalar', fields: [] };
-  const lists = Object.entries(schema.properties || {}).map(([n, x]) => [n, deref(spec, x)]).filter(([, x]) => isList(x));
-  if (lists.length === 1) return { shape: 'object', rowsPath: oneLine(lists[0][0], 100), ...cap(props(deref(spec, lists[0][1].items))) };
+  // Which property, if any, is the page of rows: the rule lives in output.mjs, shared with the runtime and the other engines.
+  const resolved = Object.entries(schema.properties || {}).map(([n, x]) => [n, deref(spec, x)]);
+  const rowsPath = rowsPropertyOf(resolved.map(([n, x]) => ({ name: n, isList: isList(x) })));
+  if (rowsPath) return { shape: 'object', rowsPath: oneLine(rowsPath, 100), ...cap(props(deref(spec, resolved.find(([n]) => n === rowsPath)[1].items))) };
   return { shape: 'object', ...cap(props(schema)) };
 }
 
@@ -163,8 +174,24 @@ export async function compile(source, { name, verbs: only, tag } = {}) {
     throw fail(`no verb matches ${tag ? `tag ${tag}` : wanted.join(', ')}; available: ${available.slice(0, 20).join(', ')}`);
   }
   const used = [...new Set(verbs.flatMap(v => v.http.security.flat()))].filter(s => schemes[s]);
-  const kept = used.filter(s => SENDABLE.has(schemes[s].type));
-  for (const s of used) if (!kept.includes(s)) process.stderr.write(`skipping unsupported security scheme ${s} (${schemes[s].type})\n`);
+  const contract = used.filter(s => schemes[s].type === 'apiKey' && schemes[s].in === 'header' && CONTRACT_HEADER.test(schemes[s].name || ''));
+  const kept = used.filter(s => !contract.includes(s) && SENDABLE.has(schemes[s].type));
+  for (const s of used) if (!kept.includes(s) && !contract.includes(s)) process.stderr.write(`skipping unsupported security scheme ${s} (${schemes[s].type})\n`);
+  // A contract-header scheme stays in http.security (an unmet alternative simply drops out at request time,
+  // same as any other scheme absent from auth.schemes) but every verb that references it also gets the
+  // ordinary flag an agent can set, since the header still needs to reach the wire when they choose to.
+  for (const v of verbs) {
+    for (const s of new Set(v.http.security.flat())) {
+      if (!contract.includes(s)) continue;
+      const sch = schemes[s];
+      const name = sch.name.toLowerCase();
+      if (v.flags.some(f => f.name === name)) continue;
+      v.flags.push(flagOf(name, sch.description, false, 'string', {
+        in: 'header', ...(sch.name !== name ? { wire: sch.name } : {}),
+        ...(name === 'user-agent' ? { default: `declick/${DECLICK_VERSION()}` } : {}),
+      }));
+    }
+  }
   return {
     name: apiName, engine: 'openapi', source: isUrl(source) ? source : resolve(source), builtAt: new Date().toISOString(),
     baseUrl: servers[0]?.url || '', servers,
@@ -284,7 +311,8 @@ async function buildRequest(m, v, positional, flags) {
   const cookies = [];
   for (const f of v.flags || []) {
     if (f.in !== 'header' && f.in !== 'cookie') continue;
-    const x = valueOf(f);
+    // A header with a compiled default (User-Agent) is sent when the flag is omitted; the flag still overrides it.
+    const x = valueOf(f) ?? (f.in === 'header' ? f.default : undefined);
     if (x === undefined) { if (f.required) throw fail(`${v.name} needs --${f.name}; ${where}`); continue; }
     checkValue(`--${f.name}`, f, x, where);
     if (f.in === 'header') headers[(f.wire || f.name).toLowerCase()] = String(x);

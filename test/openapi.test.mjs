@@ -57,6 +57,16 @@ test('a relative server url in a spec file fails at compile', async () => {
   await assert.rejects(() => compile(p, { name: 'rel' }), e => e.exit === 1 && /relative/.test(e.message));
 });
 
+test('no servers at all means the origin of the spec url, not the directory it was served from', async () => {
+  const spec = { openapi: '3.0.0', info: { title: 'NoServers' }, paths: { '/v1/images/': { get: { operationId: 'listImages', summary: 'List images' } } } };
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, text: async () => JSON.stringify(spec) });
+  try {
+    const m = await compile('https://api.openverse.org/v1/schema/', { name: 'openverse' });
+    assert.equal(m.baseUrl, 'https://api.openverse.org');
+  } finally { globalThis.fetch = real; }
+});
+
 test('$ref params resolve and path level params lose to the operation', () => {
   const list = edge.verbs.find(v => v.name === 'list');
   assert.deepEqual(list.flags.map(f => f.name), ['page-size', 'param-limit', 'status']);
@@ -220,6 +230,24 @@ test('a wide response caps its fields at 30 and a scalar body has none', async (
   assert.equal(wide.fields.length, 30); assert.equal(wide.truncated, true); assert.equal(wide.rowsPath, undefined);
   assert.deepEqual(m.verbs.find(v => v.name === 'count').returns, { shape: 'scalar', fields: [] });
   assert.deepEqual(m.verbs.find(v => v.name === 'blob').returns, { shape: 'none', fields: [] });
+  assert.deepEqual(lint(m), []);
+});
+
+test('rowsPath fires on a named row container, never on the lone array property of a wide object', async () => {
+  const p = join(mkdtempSync(join(tmpdir(), 'declick-')), 'rows2.json');
+  const repoSchema = { type: 'object', properties: {
+    full_name: { type: 'string' }, description: { type: 'string' }, owner: { type: 'string' },
+    topics: { type: 'array', items: { type: 'string' } },
+  } };
+  const pageSchema = { type: 'object', properties: { data: { type: 'array', items: { type: 'string' } }, has_more: { type: 'boolean' } } };
+  writeFileSync(p, JSON.stringify({ openapi: '3.0.0', info: { title: 'Rows2' }, servers: [{ url: 'https://rows2.test' }],
+    paths: {
+      '/repo': { get: { operationId: 'reposGet', summary: 'Get repo', responses: { 200: { content: { 'application/json': { schema: repoSchema } } } } } },
+      '/page': { get: { operationId: 'listPage', summary: 'List page', responses: { 200: { content: { 'application/json': { schema: pageSchema } } } } } },
+    } }));
+  const m = await compile(p, { name: 'rows2' });
+  assert.equal(m.verbs.find(v => v.name === 'repos-get').returns.rowsPath, undefined);
+  assert.equal(m.verbs.find(v => v.name === 'list-page').returns.rowsPath, 'data');
   assert.deepEqual(lint(m), []);
 });
 

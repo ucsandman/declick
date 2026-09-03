@@ -123,8 +123,10 @@ test('content-length framing from a real server is accepted', async () => {
   assert.equal(r.error, 'boom: the note book is on fire');
 });
 
+const PING_TOOL = { name: 'ping', description: 'Ping the server', annotations: { readOnlyHint: true }, inputSchema: { type: 'object', properties: { who: { type: 'string' } } } };
+
 // A streamable-http MCP server: JSON for initialize and tools/list, an SSE frame for tools/call.
-function httpServer({ auth = null, hang = false } = {}) {
+function httpServer({ auth = null, hang = false, tools = [PING_TOOL] } = {}) {
   const seen = [];
   const srv = createServer((req, res) => {
     let body = '';
@@ -138,7 +140,7 @@ function httpServer({ auth = null, hang = false } = {}) {
       const result = msg.method === 'initialize'
         ? { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'http-notes', version: '1' } }
         : msg.method === 'tools/list'
-          ? { tools: [{ name: 'ping', description: 'Ping the server', annotations: { readOnlyHint: true }, inputSchema: { type: 'object', properties: { who: { type: 'string' } } } }] }
+          ? { tools }
           : { content: [{ type: 'text', text: JSON.stringify({ pong: msg.params.arguments.who }) }] };
       const payload = JSON.stringify({ jsonrpc: '2.0', id: msg.id, result });
       if (msg.method === 'tools/call') { res.writeHead(200, { 'content-type': 'text/event-stream', 'mcp-session-id': 'sess-1' }); return res.end(`event: message\ndata: ${payload}\n\n`); }

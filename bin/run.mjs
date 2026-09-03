@@ -24,6 +24,26 @@ const CONTRACT = ['json', 'fields', 'limit', 'rows', 'dryRun', 'full', 'help',
 const [name, ...rest] = process.argv.slice(2);
 // parseFlags hands back camelCase keys; an error has to quote the token the agent actually typed.
 const rawFlag = k => rest.filter(a => a.startsWith('--')).map(a => a.slice(2).split('=')[0]).find(r => camel(r) === k || camel(r.replace(/^no-/, '')) === k) ?? k;
+// parseFlags throws before returning when a flag value is malformed (e.g. --limit 0), so the destructuring
+// assignment into `flags` below never runs and an explicit --json on that same line would be lost under the
+// !isTTY default. Recover just that one bool straight off the raw tokens, mirroring parseFlags' own BOOLS rule.
+function explicitJson() {
+  // parseFlags stops reading flags at a bare `--`, and a repeated bool keeps its last occurrence: match both.
+  const end = rest.indexOf('--');
+  const scan = end === -1 ? rest : rest.slice(0, end);
+  for (let i = scan.length - 1; i >= 0; i--) {
+    const a = scan[i];
+    if (!a.startsWith('--')) continue;
+    const eq = a.indexOf('=');
+    let raw = eq > -1 ? a.slice(2, eq) : a.slice(2);
+    let val = eq > -1 ? a.slice(eq + 1) : undefined;
+    if (raw.startsWith('no-') && camel(raw.slice(3)) === 'json') { raw = raw.slice(3); val = 'false'; }
+    if (camel(raw) !== 'json') continue;
+    if (val === undefined) { const next = scan[i + 1]; val = next === 'true' || next === 'false' ? next : true; }
+    return val === true || val === 'true' || val === '1';
+  }
+  return undefined;
+}
 const didYouMean = (word, known, dash = '') => { const near = nearest(word, known); return near.length ? `; did you mean ${near.map(n => dash + n).join(', ')}?` : ''; };
 const upperSnake = s => String(s).replace(/[^a-zA-Z0-9]+/g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
 const originOf = u => { try { return new URL(String(u)).origin; } catch { return null; } };
@@ -92,7 +112,7 @@ try {
 
 const creds = credUsage();
 result.meta = { ...(result.meta || {}), governance, ...(creds.length ? { credentials: creds } : {}) };
-const json = flags.json ?? !process.stdout.isTTY;
+const json = flags.json ?? explicitJson() ?? !process.stdout.isTTY;
 // A verb whose spec says where its rows live unwraps them by default, but only once the caller asks to filter
 // (--fields or --limit): otherwise the resource itself is the answer, not a guess at which array is "the rows".
 const wantsRows = flags.fields !== undefined || flags.limit !== undefined;

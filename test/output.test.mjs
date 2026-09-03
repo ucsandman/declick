@@ -39,6 +39,30 @@ test('a single resource whose fields resolve on the object is never unwrapped', 
   const r = shape({ id: 7, tags: ['a', 'b'] }, { fields: ['id'] });
   assert.deepEqual(r.data, { id: 7 }); assert.equal(r.meta.rows, undefined); assert.equal(r.meta.count, 1);
 });
+test('--fields naming top-level (or dotted) keys of the object skips an auto rows path entirely, --rows included', () => {
+  const repo = { full_name: 'octo/hello', stargazers_count: 42, owner: { login: 'octo' }, contributors: [{ login: 'a' }, { login: 'b' }] };
+  const compiled = shape(repo, { fields: ['full_name', 'stargazers_count'], rows: 'contributors', auto: true });
+  assert.deepEqual(compiled.data, { full_name: 'octo/hello', stargazers_count: 42 }); assert.equal(compiled.meta.rows, undefined);
+  const dotted = shape(repo, { fields: ['owner.login'], rows: 'contributors', auto: true });
+  assert.deepEqual(dotted.data, { 'owner.login': 'octo' }); assert.equal(dotted.meta.rows, undefined);
+  // A field list that matches nothing on the object still unwraps: the rows array is the only sensible answer.
+  const unwrapped = shape(repo, { fields: ['login'], rows: 'contributors', auto: true });
+  assert.deepEqual(unwrapped.data, [{ login: 'a' }, { login: 'b' }]); assert.equal(unwrapped.meta.rows, 'contributors');
+});
+test('auto rows-path detection only fires for a data/items-named array, not any sole array on the object', () => {
+  // GitHub's repository shape: 90-odd fields, one array called topics. --fields on the object itself still
+  // works, a typo still lists the object's own keys (never an empty list), and topics is never mistaken for rows.
+  const repo = { id: 1, name: 'hello', full_name: 'octo/hello', stargazers_count: 42, topics: ['a', 'b'], owner: { login: 'octo' } };
+  const named = shape(repo, { fields: ['full_name'], auto: true });
+  assert.deepEqual(named.data, { full_name: 'octo/hello' }); assert.equal(named.meta.rows, undefined);
+  assert.throws(() => shape(repo, { fields: ['fullname'], auto: true }),
+    e => e.exit === 1 && /^no field matched fullname; available: id, name, full_name, stargazers_count, topics, owner$/.test(e.message));
+  const untouched = shape({ topics: ['a', 'b'], name: 'hello', id: 1 }, { auto: true, limit: 1 });
+  assert.equal(untouched.meta.rows, undefined); assert.deepEqual(untouched.data, { topics: ['a', 'b'], name: 'hello', id: 1 });
+  // data/items/etc still unwrap by name alone, whatever else rides beside them.
+  const page = shape({ data: [{ id: 1 }, { id: 2 }], has_more: true }, { auto: true, limit: 1 });
+  assert.equal(page.meta.rows, 'data'); assert.deepEqual(page.data, [{ id: 1 }]);
+});
 test('shape resolves dotted fields, reports partial misses and fails when nothing matches', () => {
   const rows = [{ a: { b: 1 }, c: 2 }];
   assert.deepEqual(shape(rows, { fields: ['a.b'] }).data, [{ 'a.b': 1 }]);
@@ -101,10 +125,17 @@ test('parseFlags: bare --limit is ignored, bad --limit is an exit 1 error', () =
 });
 test('camel', () => { assert.equal(camel('page-size'), 'pageSize'); assert.equal(camel('x'), 'x'); });
 test('nearest suggests names within three edits, closest first, at most three', () => {
-  assert.deepEqual(nearest('get-pet', ['get-pets', 'get-pet-by-id', 'add-pet', 'delete-everything']), ['get-pets', 'add-pet']);
+  // get-pet-by-id is 6 edits away (past the old d<=3 cutoff) but starts with the typed word, so it now outranks
+  // add-pet (3 edits, no shared prefix): this replaces the old ['get-pets', 'add-pet'] expectation, which
+  // encoded the exact bug (add-pet over get-pet-by-id) the fix corrects.
+  assert.deepEqual(nearest('get-pet', ['get-pets', 'get-pet-by-id', 'add-pet', 'delete-everything']), ['get-pets', 'get-pet-by-id', 'add-pet']);
   assert.deepEqual(nearest('flag', ['flagx', 'flagy', 'flagz', 'flagw']), ['flagw', 'flagx', 'flagy']);
   assert.deepEqual(nearest('zzzzzzzz', ['a', 'b']), []);
   assert.deepEqual(nearest('dry-runn', RESERVED), ['dry-run']);
+  // A prefix of a candidate ranks first even past edit distance 3: 'list' is 6 edits from 'list-notes'.
+  assert.deepEqual(nearest('list', ['list-notes', 'delete-note']), ['list-notes']);
+  // A candidate containing the word (not just prefixed by it) still outranks an edit-distance-only match.
+  assert.deepEqual(nearest('pet', ['get-pet-by-id', 'pest']), ['get-pet-by-id', 'pest']);
 });
 test('emit merges engine meta into the envelope meta, on errors too', () => {
   const j = JSON.parse(emit({ ok: true, data: { id: 1 }, meta: { status: 200, retries: 2, curl: 'curl x' } }, { json: true }).text);

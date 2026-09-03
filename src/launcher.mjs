@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node
 import { spawnSync } from 'node:child_process';
 import { join, dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { HOME } from './manifest.mjs';
 
 const RUN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'run.mjs');
@@ -23,9 +24,28 @@ export function onPath() {
   return (process.env.PATH || '').split(delimiter).filter(Boolean).some(p => { try { return norm(p) === want; } catch { return false; } });
 }
 
+// zsh has been the macOS default login shell since Catalina (10.15) and never reads ~/.profile,
+// so a launcher installed there is invisible to every new terminal a macOS user opens; bash on
+// macOS prefers ~/.bash_profile when one already exists. Linux bash and any other shell still
+// read ~/.profile, which is what every install before this one wrote unconditionally.
+export function profileFile() {
+  if (WIN) return null;
+  const shell = process.env.SHELL || '';
+  if (shell.endsWith('zsh')) return join(homedir(), '.zprofile');
+  if (shell.endsWith('fish')) return join(homedir(), '.config', 'fish', 'config.fish');
+  if (shell.endsWith('bash') && process.platform === 'darwin' && existsSync(join(homedir(), '.bash_profile'))) return join(homedir(), '.bash_profile');
+  return join(homedir(), '.profile');
+}
+
 export function pathHint() {
   const bin = binDir();
-  return WIN ? `setx PATH "%PATH%;${bin}"` : `echo 'export PATH="$PATH:${bin}"' >> ~/.profile`;
+  if (WIN) return `setx PATH "%PATH%;${bin}"`;
+  const file = profileFile();
+  // fish_add_path is idempotent (checks membership before appending), unlike `set -gx PATH $PATH
+  // <bin>` -- fish sources config.fish on every interactive shell, so a plain append would grow
+  // PATH by one duplicate entry per shell opened.
+  const line = file.endsWith('config.fish') ? `fish_add_path "${bin}"` : `export PATH="$PATH:${bin}"`;
+  return `echo '${line}' >> ${file.replace(homedir(), '~')}`;
 }
 
 // A shim named git, node or claude would shadow the real tool once bin is on PATH.

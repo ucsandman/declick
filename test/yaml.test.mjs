@@ -96,6 +96,29 @@ test('a quoted scalar that continues on following lines folds like a block scala
   assert.deepEqual(double, { a: 'one two', b: 1 });
 });
 
+test('a mapping key containing a colon (OAuth scope style) keeps its siblings instead of being folded into a scalar', () => {
+  const v = parseYaml('a:\n  x:y: 1\n  z: 2\nb: 3\n');
+  assert.deepEqual(v, { a: { 'x:y': 1, z: 2 }, b: 3 });
+});
+
+test('an OAuth scopes block with colon-bearing keys keeps the sibling security scheme after it (petstore3 shape)', () => {
+  const v = parseYaml('scopes:\n  write:pets: modify pets in your account\n  read:pets: read your pets\napi_key:\n  type: apiKey\n');
+  assert.deepEqual(v, {
+    scopes: { 'write:pets': 'modify pets in your account', 'read:pets': 'read your pets' },
+    api_key: { type: 'apiKey' },
+  });
+});
+
+test('a quoted value containing ": " still parses as one scalar under its key', () => {
+  const v = parseYaml('key: "value: with colon-space"\nnext: 1\n');
+  assert.deepEqual(v, { key: 'value: with colon-space', next: 1 });
+});
+
+test('a plain value containing a bare colon (URL) still resolves the key before it', () => {
+  const v = parseYaml('url: https://example.com/a:b\nnext: 1\n');
+  assert.deepEqual(v, { url: 'https://example.com/a:b', next: 1 });
+});
+
 test('anchors, aliases and merge keys', () => {
   const doc = `
 base: &base
@@ -149,6 +172,26 @@ test('a clear error names the line number for unsupported constructs', () => {
 test('flow collections nest: sequences of mappings, mappings of sequences', () => {
   const v = parseYaml('a: [{ x: 1, y: [1, 2, 3] }, { x: 2, y: [] }]\n');
   assert.deepEqual(v, { a: [{ x: 1, y: [1, 2, 3] }, { x: 2, y: [] }] });
+});
+
+test('a flow mapping with colon-bearing plain keys (OAuth scopes) does not split at the first colon', () => {
+  const v = parseYaml('scopes: {write:pets: modify, read:pets: read}\nnext: 1\n');
+  assert.deepEqual(v, { scopes: { 'write:pets': 'modify', 'read:pets': 'read' }, next: 1 });
+});
+
+test('a flow mapping plain key with a colon immediately before the delimiting colon resolves to the whole key', () => {
+  const v = parseYaml('a: {a:b: 1}\n');
+  assert.deepEqual(v, { a: { 'a:b': 1 } });
+});
+
+test('a flow mapping value containing a bare colon (URL) still resolves under its key', () => {
+  const v = parseYaml('a: {url: http://x/y:z}\n');
+  assert.deepEqual(v, { a: { url: 'http://x/y:z' } });
+});
+
+test('a plain flow mapping without colon-bearing keys is unchanged', () => {
+  const v = parseYaml('a: {a: 1, b: 2}\n');
+  assert.deepEqual(v, { a: { a: 1, b: 2 } });
 });
 
 test('a 1MB document parses in under a second', () => {

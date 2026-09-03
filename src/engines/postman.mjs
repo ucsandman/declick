@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { EXIT, RESERVED } from '../output.mjs';
+import { EXIT, RESERVED, rowsPropertyOf } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 
 // A collection compiles to the verb shape the openapi engine executes, so the request path, auth,
@@ -82,12 +82,16 @@ export function chooseOrigin(origins, host) {
 const propsOf = o => Object.entries(o).map(([n, v]) => ({ name: oneLine(n, 100), type: jsonType(v) }));
 const cap = f => ({ fields: f.slice(0, 30), ...(f.length > 30 ? { truncated: true } : {}) });
 const rowish = a => a[0] && typeof a[0] === 'object' && !Array.isArray(a[0]);
+// data/items/etc are unambiguous row containers; anything else only counts if the array is nearly the whole
+// object and everything beside it looks like pagination, so a resource with one array property among several
+// unrelated fields (a label body next to title/id/body) never gets treated as a page of rows. Same heuristic
+// as the openapi engine, since both are guessing rowsPath off a body shape.
 export function returnsOfJson(body) {
   if (body === undefined || body === null) return { shape: 'none', fields: [] };
   if (Array.isArray(body)) return { shape: 'array', ...cap(rowish(body) ? propsOf(body[0]) : []) };
   if (typeof body !== 'object') return { shape: 'scalar', fields: [] };
-  const lists = Object.entries(body).filter(([, v]) => Array.isArray(v) && rowish(v));
-  if (lists.length === 1) return { shape: 'object', rowsPath: oneLine(lists[0][0], 100), ...cap(propsOf(lists[0][1][0])) };
+  const rowsPath = rowsPropertyOf(Object.entries(body).map(([n, v]) => ({ name: n, isList: Array.isArray(v) && rowish(v) })));
+  if (rowsPath) return { shape: 'object', rowsPath: oneLine(rowsPath, 100), ...cap(propsOf(body[rowsPath][0])) };
   return { shape: 'object', ...cap(propsOf(body)) };
 }
 

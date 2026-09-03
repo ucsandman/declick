@@ -30,6 +30,11 @@ test('long kebab names, paths and env names are not secrets', () => {
     verbs: [{ name: 'get-organization-membership-invitations', description: 'List pending invitations for an organization', args: [], flags: [], mutating: false, http: { path: '/organizations/{org}/membership-invitations/pending' } }] };
   assert.deepEqual(validateManifest(m), []);
 });
+test('spec-provided example and default values are not secrets, but the same string in a description still fails', () => {
+  const sha = 'ddc951f4b1293222421f2c8df679786153acf689';
+  assert.deepEqual(validateManifest({ ...good, verbs: [{ ...good.verbs[0], flags: [{ name: 'sha', description: 'Commit sha', example: sha, default: sha }] }] }), []);
+  assert.ok(validateManifest({ ...good, verbs: [{ ...good.verbs[0], description: sha }] }).some(e => e.includes('secret')));
+});
 test('descriptions must be one line without backticks', () => {
   assert.ok(validateManifest({ ...good, verbs: [{ ...good.verbs[0], description: 'a\n---\nb' }] }).some(e => /one line/.test(e)));
 });
@@ -78,6 +83,13 @@ test('a real spec\'s long, multi-line, backticked description is normalized to i
   assert.deepEqual(lint(n), []);
   assert.doesNotThrow(() => saveManifest(m));
   assert.equal(loadManifest('billing').verbs[0].description, firstSentence);
+});
+test('a period between digits is not a sentence end: 2.5km survives the first-sentence cut', () => {
+  const raw = 'Returns raw numerical forecast data for a 2.5km grid area. Then a second sentence.';
+  const n = normalizeManifest({ ...good, verbs: [{ ...good.verbs[0], description: raw }] });
+  assert.equal(n.verbs[0].description, 'Returns raw numerical forecast data for a 2.5km grid area.');
+  const open = normalizeManifest({ ...good, verbs: [{ ...good.verbs[0], description: 'Returns raw numerical forecast data for a 2.5km grid area' }] });
+  assert.equal(open.verbs[0].description, 'Returns raw numerical forecast data for a 2.5km grid area', 'no terminator at all: the whole text, not a cut at the decimal');
 });
 test('a description whose first sentence runs past 80 chars is hard-cut on a word boundary, not mid-word', () => {
   const raw = 'alpha '.repeat(19) + 'end.'; // first (only) sentence is 118 chars, well past 80

@@ -13,6 +13,7 @@ const run = (args, extra = {}) => spawnSync(process.execPath, ['bin/declick.mjs'
 const runtime = (args, extra = {}) => spawnSync(process.execPath, ['bin/run.mjs', ...args], { env: { ...env, ...extra }, encoding: 'utf8' });
 // Async twin for tests that also run a server in this process: spawnSync would block the server's event loop.
 const runtimeAsync = (args, extra = {}) => new Promise(res => { const c = spawn(process.execPath, ['bin/run.mjs', ...args], { env: { ...env, ...extra } }); let stdout = '', stderr = ''; c.stdout.on('data', d => stdout += d); c.stderr.on('data', d => stderr += d); c.on('close', status => res({ status, stdout, stderr })); });
+const cliAsync = (args, extra = {}) => new Promise(res => { const c = spawn(process.execPath, ['bin/declick.mjs', ...args], { env: { ...env, ...extra } }); let stdout = '', stderr = ''; c.stdout.on('data', d => stdout += d); c.stderr.on('data', d => stderr += d); c.on('close', status => res({ status, stdout, stderr })); });
 const J = r => { try { return JSON.parse(r.stdout); } catch { throw new Error(`not json (exit ${r.status}): ${r.stdout}\n${r.stderr}`); } };
 const WIN = process.platform === 'win32';
 
@@ -51,6 +52,49 @@ test('errors are envelopes on stdout with the contract exit code', () => {
   // A missing local source is a hand-written message, not a raw Node fs error.
   const enoent = J(run(['add', './nothing.json', '--name', 'x']));
   assert.match(enoent.error, /^no such file: .*nothing\.json$/); assert.ok(!enoent.error.includes('ENOENT'), enoent.error);
+});
+test('add normalizes a raw spec before lint, so a real spec with long, backticked descriptions still compiles', () => {
+  const longDesc = 'This operation does a great many things across two long sentences full of detail. ' +
+    'It also uses `backtick` code and keeps going well past eighty characters for sure, definitely.';
+  const flagDesc = 'The identifier of the resource to fetch, formatted as a UUID, required on every call, documented at great length here to exceed two hundred characters easily so the normalizer has real work to do trimming this down to size for the agent.';
+  const spec = join(home, 'messy.json');
+  writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'Messy' }, servers: [{ url: 'https://example.com' }],
+    paths: { '/thing': { get: { operationId: 'getThing', summary: longDesc, parameters: [{ name: 'id', in: 'query', description: flagDesc }] } } } }));
+  const r = run(['add', spec, '--name', 'messy']);
+  assert.equal(r.status, 0, r.stdout);
+  assert.deepEqual(J(run(['lint', 'messy'])).data.errors, []);
+  const verb = J(run(['manifest', 'messy'])).data.verbs[0];
+  assert.ok(!verb.description.includes('`'), verb.description);
+  assert.ok(verb.flags[0].description.length <= 200, verb.flags[0].description);
+  assert.equal(run(['remove', 'messy']).status, 0);
+});
+test('add refuses an html page as a spec, naming the web: adapter and the api alternative; an explicit web: source keeps its own message', async () => {
+  const srv = createServer((req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html><body>hi</body></html>'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const site = `http://127.0.0.1:${srv.address().port}/`;
+  try {
+    const r = await cliAsync(['add', site, '--name', 'bad']);
+    assert.equal(r.status, 1, r.stdout);
+    const j = J(r);
+    assert.match(j.error, /is a web page, not an API spec/);
+    assert.match(j.error, /declick add web:/);
+    assert.match(j.error, /declick engines --source/);
+    assert.ok(!existsSync(join(home, 'bad')), 'nothing built');
+  } finally { srv.close(); }
+  const explicit = run(['add', `web:${site}`, '--name', 'bad2']);
+  assert.equal(explicit.status, 1);
+  assert.match(J(explicit).error, /no recipes for bad2/);
+});
+test('a failed add caps data.errors at 50 and reports the true count in errorCount', () => {
+  const paths = {};
+  for (let i = 0; i < 55; i++) paths[`/x${i}`] = { get: { operationId: `getX${i}`, summary: 'get x', parameters: [{ name: 'tok', in: 'query', description: `token${'A'.repeat(30)}${i}` }] } };
+  const spec = join(home, 'manyerr.json');
+  writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'Many' }, servers: [{ url: 'https://example.com' }], paths }));
+  const r = run(['add', spec, '--name', 'manyerr']);
+  assert.equal(r.status, 1, r.stdout);
+  const j = J(r);
+  assert.equal(j.data.errorCount, 55);
+  assert.equal(j.data.errors.length, 50);
 });
 test('help, version, engines, path, doctor', () => {
   assert.equal(run(['help']).status, 0); assert.equal(run([]).status, 0); assert.equal(run(['--help']).status, 0);
@@ -106,6 +150,19 @@ test('runtime describe honors --json and --help on a verb', () => {
 test('runtime rejects unknown flags instead of running the verb', () => {
   const r = runtime(['petstore', 'get-pet-by-id', '7', '--nope', '1']);
   assert.equal(r.status, 1); assert.match(J(r).error, /unknown flag --nope/);
+});
+test('a malformed --limit still yields the envelope, not a bare stderr line', () => {
+  for (const bad of [['--limit', '0'], ['--limit', 'abc']]) {
+    const r = runtime(['petstore', 'get-pet-by-id', '7', ...bad, '--json']);
+    assert.equal(r.status, 1); assert.equal(r.stderr, '');
+    assert.match(J(r).error, /--limit must be a positive integer/);
+  }
+  // parseFlags throws before `flags` is assigned, so --json's value has to survive off the raw tokens too:
+  // an explicit --json false (or --no-json) must still get text, not the !isTTY default of JSON.
+  const text = runtime(['petstore', 'get-pet-by-id', '7', '--limit', '0', '--json', 'false']);
+  assert.equal(text.status, 1); assert.equal(text.stderr, ''); assert.match(text.stdout, /^error: --limit must be a positive integer, got 0\n?$/);
+  const noJson = runtime(['petstore', 'get-pet-by-id', '7', '--limit', '0', '--no-json']);
+  assert.equal(noJson.stderr, ''); assert.match(noJson.stdout, /^error: --limit must be a positive integer, got 0\n?$/);
 });
 test('runtime flag order does not matter and =value works', () => {
   assert.equal(J(runtime(['petstore', 'get-pet-by-id', '--dry-run', '7'])).data.url, 'https://petstore3.swagger.io/api/v3/pet/7');
@@ -285,11 +342,13 @@ test('a refused desktop add leaves no recipes directory behind', () => {
   const shadow = run(['add', 'app:Calculator', '--name', 'node', '--recipes', 'fixtures/calculator']);
   assert.equal(shadow.status, 1, shadow.stdout); assert.match(J(shadow).error, /node already resolves to/);
   assert.ok(!existsSync(join(home, 'node')), 'no adapter directory after a shadow refusal');
-  // A recipe that imports cleanly but fails lint rolls the import back for a fresh adapter.
+  // A recipe that imports cleanly but fails lint rolls the import back for a fresh adapter. The verb name
+  // comes from the recipe filename, so naming it describe.json collides with the reserved verb name; a raw
+  // long description no longer triggers lint here, since build() normalizes (truncates) it before linting.
   const dir = join(home, 'long-desc'); mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'add.json'), JSON.stringify({ ...JSON.parse(readFileSync('fixtures/calculator/add.json', 'utf8')), description: 'x'.repeat(81) }));
+  writeFileSync(join(dir, 'describe.json'), readFileSync('fixtures/calculator/add.json', 'utf8'));
   const lint = run(['add', 'app:Calculator', '--name', 'lintfail', '--recipes', dir]);
-  assert.equal(lint.status, 1, lint.stdout); assert.match(J(lint).error, /description over 80 chars/);
+  assert.equal(lint.status, 1, lint.stdout); assert.match(J(lint).error, /describe is a reserved verb name/);
   assert.ok(!existsSync(join(home, 'lintfail')), 'no adapter directory after a lint refusal');
 });
 
@@ -432,21 +491,28 @@ test('--dry-run leaves a read-only command alone, and --limit never unwraps a re
 test('a verb with a compiled rowsPath only auto-unwraps once --fields or --limit is asked for', async () => {
   const srv = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ full_name: 'ucsandman/declick', private: false, topics: ['ai-agents', 'cli'] }));
+    res.end(JSON.stringify({ full_name: 'ucsandman/declick', private: false, items: ['ai-agents', 'cli'], topics: ['x'] }));
   });
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${srv.address().port}`;
-  const spec = join(home, 'rows.json');
-  writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'Rows' }, servers: [{ url: base }], paths: { '/repo': { get: { operationId: 'getRepo', summary: 'Get repo',
-    responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { full_name: { type: 'string' }, private: { type: 'boolean' }, topics: { type: 'array', items: { type: 'string' } } } } } } } } } } } }));
-  assert.equal(run(['add', spec, '--name', 'rows']).status, 0);
-  // The server lives in this process; spawnSync would freeze the event loop it needs to answer, so use the async spawn.
-  const plain = J(await runtimeAsync(['rows', 'get-repo']));
-  assert.deepEqual(plain.data, { full_name: 'ucsandman/declick', private: false, topics: ['ai-agents', 'cli'] }, 'no --fields/--limit: the resource itself, not the compiled rowsPath guess');
-  assert.equal(plain.meta.rows, undefined);
-  const limited = J(await runtimeAsync(['rows', 'get-repo', '--limit', '1']));
-  assert.equal(limited.meta.rows, 'topics', '--limit alone still asks for the compiled rowsPath');
-  srv.closeAllConnections(); await new Promise(r => srv.close(r));
+  try {
+    const base = `http://127.0.0.1:${srv.address().port}`;
+    const spec = join(home, 'rows.json');
+    // items is a list-shaped name, so the compiler records it as rowsPath; topics beside it is not.
+    writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'Rows' }, servers: [{ url: base }], paths: { '/repo': { get: { operationId: 'getRepo', summary: 'Get repo',
+      responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { full_name: { type: 'string' }, private: { type: 'boolean' }, items: { type: 'array', items: { type: 'string' } } } } } } } } } } } }));
+    assert.equal(run(['add', spec, '--name', 'rows']).status, 0);
+    assert.equal(J(run(['manifest', 'rows', '--verb', 'get-repo'])).data.verbs[0].returns.rowsPath, 'items');
+    // The server lives in this process; spawnSync would freeze the event loop it needs to answer, so use the async spawn.
+    const plain = J(await runtimeAsync(['rows', 'get-repo']));
+    assert.deepEqual(plain.data, { full_name: 'ucsandman/declick', private: false, items: ['ai-agents', 'cli'], topics: ['x'] }, 'no --fields/--limit: the resource itself, not the compiled rowsPath guess');
+    assert.equal(plain.meta.rows, undefined);
+    const limited = J(await runtimeAsync(['rows', 'get-repo', '--limit', '1']));
+    assert.equal(limited.meta.rows, 'items', '--limit alone asks for the compiled rowsPath');
+    assert.deepEqual(limited.data, ['ai-agents']);
+    const own = J(await runtimeAsync(['rows', 'get-repo', '--fields', 'full_name']));
+    assert.deepEqual(own.data, { full_name: 'ucsandman/declick' }, '--fields naming the object itself projects the object, no unwrap');
+    assert.equal(own.meta.rows, undefined);
+  } finally { srv.closeAllConnections(); await new Promise(r => srv.close(r)); }
   assert.equal(run(['remove', 'rows']).status, 0);
 });
 test('--dry-run with a missing recipes path names the flag, not ENOENT', () => {

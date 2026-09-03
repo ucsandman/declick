@@ -1,9 +1,35 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-09-03)
 
-- License: every release after 0.3.0 is under the Elastic License 2.0 (SPDX `Elastic-2.0`), reproduced in full in `LICENSE`. The source stays public and readable: use it, change it, redistribute it, ship it inside your own product. You may not offer it to others as a managed service. Release 0.3.0 as published on npm was released under the MIT license and stays under it. Commercial licenses for teams and production support: https://declick.dev.
+Pre-launch QA of the published 0.3.0 on Windows and Linux, against Stripe, GitHub, Slack, Twilio, Openverse, api.weather.gov, apis.guru, two GraphQL endpoints, two reference MCP servers and a SQLite file. Every fix below came out of that pass and carries a regression test; 464 tests pass.
+
+- License: 0.3.1 is the first release under the Elastic License 2.0 (SPDX `Elastic-2.0`), reproduced in full in `LICENSE`. The source stays public and readable: use it, change it, redistribute it, ship it inside your own product. You may not offer it to others as a managed service. Release 0.3.0 as published on npm was released under the MIT license and stays under it. Commercial licenses for teams and production support: https://declick.dev.
+- Governance: a mutating verb with no `DASHCLAW_API_KEY` set no longer writes a warning line to stderr. It runs, and the envelope records `governance: {enabled: false, decision: "skipped", reason: "no guard configured"}`. Piping a mutating call now produces the envelope and nothing else.
+- Skills: `add` writes `SKILL.md` into every agent skills directory that exists on the machine, not only `~/.claude/skills`: `~/.codex/skills`, `~/.hermes/skills`, `~/.openclaw/skills` and `~/.agents/skills` when the directory is already there, and none are created for an agent that is not installed. `DECLICK_SKILLS` is a comma-separated override that replaces the list. `declick skill <name> --print` writes one adapter's SKILL.md text to stdout instead of disk, for an AGENTS.md or a system prompt. `skillText` is exported for callers that want to render it themselves.
+- `describe` pages itself instead of failing lint on a large surface: the page stays under the 2000 char ceiling and ends with a footer naming how many verbs are left, the total, and the flags that reach them (`--grep`, `--offset`, `--limit`, `--verb`). `declick lint` measures the paged page, so a 60 verb spec compiles.
+- YAML: zero-indent block sequences, plain-scalar folding, anchors before a sequence, sequence-item indent and multi-line quoted scalars all parse. Stripe's `spec3.yaml` parses to 419 paths, Openverse's to 17.
+- Engine detection: a spec URL whose head does not show the openapi key no longer routes to the web engine, and a spec URL that answers 404 fails naming the status (`GET <url> -> 404`) instead of reporting no recipes.
+- `run`: a verb's compiled `returns.rowsPath` is auto-unwrapped only when `--fields` or `--limit` is passed, so an unfiltered call returns the resource as the API sent it; `rowsPath` is compiled only for a list-shaped property.
+- `import` reads `export`'s envelope as it comes, so `declick export <name> | declick import -` round-trips without hand-editing the bundle.
+- `doctor`: `healthy` follows `blocking` only, so a fresh home whose `bin` directory is not yet on PATH reports healthy with one warning rather than unhealthy.
+- A failed `add` prints the first eight lint errors followed by a count of the rest, instead of one unreadable line.
+- Node below 24 prints one line naming the version it found and exits 1, from both `bin/declick.mjs` and `bin/run.mjs`. The engine index pulls in `node:sqlite` at import time, so the check now runs before the engines load on either entry point.
+- `declick engines` lists sqlite once, and reports desktop as not ready with "Windows only (deskclaw UI Automation)" on any platform that is not Windows.
+- Launcher: a launcher declick itself wrote is no longer read as a name collision, so `add` and `build` work after `declick path --install` puts `~/.declick/bin` on PATH. The `.cmd` twin is written on Windows only.
+- `saveManifest` normalizes a description on the way to disk: collapsed to one line, then its first sentence, and a first sentence still over the bound cut back to the last word boundary (80 chars for a verb, 200 for args and flags). `add` and `build` normalize before lint, so a spec with long, multi-line or backticked descriptions compiles: Stripe (594 verbs), GitHub (1224), Openverse and api.weather.gov all add from their public URLs. `import` still lints the bundle as given, since a bundle is untrusted input.
+- The secret scanner skips `example` and `default` values, which are spec-provided text (GitHub's example SHAs are not credentials).
+- YAML: a mapping key that contains a colon (`read:pets:`, `x:y:`) is a key, in block and flow context, so OAuth scope maps and a sibling `api_key` scheme survive; the YAML twin of the petstore spec now compiles the same auth keys as the JSON one.
+- OpenAPI: a spec that declares no `servers` gets its origin as the base URL, not the spec's directory. A required header parameter that is not a security scheme (`User-Agent`, `Accept`) is an ordinary flag with a default, never an auth key. `rowsPath` is compiled only for a list-shaped property (`data`, `items`, `results`, ... or a small object whose other keys are pagination), in the openapi, mcp and postman engines alike; `--fields` naming keys of the object itself projects the object instead of unwrapping.
+- A bad `--limit` (`0`, `abc`) returns the failure envelope on stdout from both entry points instead of a bare stderr line.
+- Did-you-mean prefers a prefix match (`get-pet` suggests `get-pet-by-id`, `descr` suggests `describe`) before edit distance, in the runtime and the management CLI.
+- `add` on a plain web page URL without the `web:` prefix says it is not an API spec and shows both the `web:` form and the spec alternative; `engines --source` on the same URL suggests the `web:` form. A failed `add` caps `data.errors` at 50 and reports `data.errorCount`.
+- `path --install` writes the file the login shell reads: `~/.zprofile` for zsh (the macOS default), `~/.bash_profile` when it exists for bash on macOS, `fish_add_path` in `config.fish` for fish, `~/.profile` otherwise. The stderr hint after `add` names the same file.
+- The mcp and cli engines spawn `cmd.exe` explicitly instead of passing `shell: true`, so Node 24 no longer emits a DEP0190 warning into the output.
+- `creds`: the "or run: creds mint <name>" hint on an exit 4 appears only when that tool is on PATH.
+- `sqlite`: a `query` verb called without `--sql` says so.
 - `add app:<w> --recipes` runs the launcher and skill preflight before importing recipes, and a fresh adapter directory is rolled back when compile or lint refuses, so a refused add no longer leaves `~/.declick/<name>/recipes/` with no manifest.
+- README, docs, site and package description updated for agent-neutral skill discovery and the optional guard; DashClaw is explained and linked. The reference material (desktop recipe steps, the manifest, environment variables) moved to `docs/REFERENCE.md`.
 
 ## 0.3.0 (2026-09-02)
 

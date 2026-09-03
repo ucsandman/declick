@@ -127,6 +127,25 @@ test('security alternatives: any one satisfied alternative is enough, none names
   assert.equal(open.ok, true, open.error); assert.equal(open.data.authorization, undefined);
 });
 
+test('a User-Agent security scheme is a contract header, not an auth key: no env, never exit 4', async () => {
+  const spec = join(tmpdir(), `ua-${process.pid}.json`);
+  writeFileSync(spec, JSON.stringify({
+    openapi: '3.0.0', info: { title: 'Weatherish' }, servers: [{ url: 'https://weatherish.test' }],
+    security: [{ userAgent: [] }],
+    components: { securitySchemes: { userAgent: { type: 'apiKey', in: 'header', name: 'User-Agent', description: 'identify yourself' } } },
+    paths: { '/points': { get: { operationId: 'points', summary: 'Get points', responses: { 200: { content: { 'application/json': {} } } } } } },
+  }));
+  const w = await compile(spec, { name: 'weatherish' });
+  assert.deepEqual(w.auth.env, []);
+  const flag = w.verbs[0].flags.find(f => f.name === 'user-agent');
+  assert.equal(flag.description, 'identify yourself');
+  assert.equal(flag.required, false);
+  assert.equal(flag.in, 'header');
+  assert.match(flag.default, /^declick\/\d+\.\d+\.\d+/);
+  const r = await execute(w, 'points', [], {}, { fetch: async () => ({ ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), text: async () => '{}' }) });
+  assert.equal(r.ok, true, r.error);
+});
+
 test('the runtime unwraps a paged body end to end and keeps the cursor in meta', async () => {
   const { createServer } = await import('node:http');
   const { spawn } = await import('node:child_process');

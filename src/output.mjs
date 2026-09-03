@@ -17,9 +17,17 @@ const editDistance = (a, b) => {
   }
   return prev[b.length];
 };
-export const nearest = (name, candidates = []) => [...new Set(candidates)]
-  .map(c => [String(c), editDistance(String(name), String(c))]).filter(([, d]) => d <= 3)
-  .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([c]) => c);
+// A candidate that starts with the typed word (or at least contains it) is the obvious match even past edit
+// distance 3 (list -> list-notes), and outranks a same-distance candidate that shares no substring at all.
+export const nearest = (name, candidates = []) => {
+  const n = String(name);
+  const rank = c => (n && c.startsWith(n)) ? 0 : (n && c.includes(n)) ? 1 : 2;
+  return [...new Set(candidates)].map(String)
+    .map(c => [c, rank(c), editDistance(n, c)])
+    .filter(([, r, d]) => r < 2 || d <= 3)
+    .sort((a, b) => a[1] - b[1] || a[2] - b[2] || a[0].localeCompare(b[0]))
+    .slice(0, 3).map(([c]) => c);
+};
 
 // A dotted path resolves per row; a miss is undefined so a real undefined value still counts as a hit.
 const at = (obj, path) => {
@@ -27,7 +35,22 @@ const at = (obj, path) => {
   for (const k of path.split('.')) { if (!cur || typeof cur !== 'object' || !(k in cur)) return undefined; cur = cur[k]; }
   return { v: cur };
 };
-const keysOf = o => (o && typeof o === 'object' ? Object.keys(o) : []).slice(0, 20).join(', ');
+const keysOf = o => (o && typeof o === 'object' ? Object.keys(o) : []).slice(0, 30).join(', ');
+
+// data/items/etc are unambiguous row containers; anything else only counts if the array is nearly the whole
+// object and everything beside it looks like pagination, so a 90-field resource with one array property
+// (GitHub's repository shape and its topics) never gets treated as a page of rows. Shared with the openapi,
+// mcp and postman engines so the manifest's compiled rowsPath and this runtime auto-detect agree.
+export const ROWS_NAMES = new Set(['data', 'items', 'results', 'rows', 'entries', 'records', 'edges', 'nodes', 'values', 'list', 'hits', 'objects']);
+export const PAGINATION_ISH = /^(cursor|next|next_cursor|total|count|page|has_more|object|url|limit|offset)$/;
+export function rowsPropertyOf(props) {
+  const lists = props.filter(p => p.isList);
+  if (lists.length !== 1) return null;
+  const [only] = lists;
+  const names = props.map(p => p.name);
+  const isRows = ROWS_NAMES.has(only.name) || (names.length <= 3 && names.filter(n => n !== only.name).every(n => PAGINATION_ISH.test(n)));
+  return isRows ? only.name : null;
+}
 
 function pick(obj, fields) {
   if (!fields || !fields.length || !obj || typeof obj !== 'object') return obj;
@@ -59,17 +82,21 @@ function unwrap(body, path, rows, fields, limit) {
 
 export function shape(data, { fields, limit, rows, auto } = {}) {
   if (Array.isArray(data)) return project(data, fields, limit);
-  if (rows) {
-    if (typeof rows !== 'string') throw fail('--rows needs a dotted path, e.g. --rows items');
+  if (rows && typeof rows !== 'string') throw fail('--rows needs a dotted path, e.g. --rows items');
+  // Fields that already resolve on the object itself (top level or dotted) are the answer: an auto rows path,
+  // whether typed with --rows or compiled from the manifest's returns.rowsPath, never unwraps them away.
+  const onObject = auto && fields?.length && data && typeof data === 'object' && fields.some(f => at(data, f));
+  if (rows && !onObject) {
     const hit = at(data, rows);
     if (!hit || !Array.isArray(hit.v)) throw fail(`no rows array at ${rows}; available: ${keysOf(data)}`);
     return unwrap(data, rows, hit.v, fields, limit);
   }
   // Only a response body gets its rows guessed, and only for a caller that asked to filter: a manifest or a
   // describe payload is the resource itself, and its verbs array is not a page of rows.
-  if (auto && (fields?.length || limit !== undefined) && data && typeof data === 'object' && !(fields?.length && fields.some(f => at(data, f)))) {
-    const arrays = Object.keys(data).filter(k => Array.isArray(data[k]));
-    if (arrays.length === 1) return unwrap(data, arrays[0], data[arrays[0]], fields, limit);
+  if (!onObject && auto && (fields?.length || limit !== undefined) && data && typeof data === 'object') {
+    const props = Object.keys(data).map(k => ({ name: k, isList: Array.isArray(data[k]) }));
+    const rowsProp = rowsPropertyOf(props);
+    if (rowsProp) return unwrap(data, rowsProp, data[rowsProp], fields, limit);
   }
   const unknown = missing(data === undefined || data === null ? [] : [data], fields);
   return { data: pick(data, fields) ?? null, meta: { count: data === undefined ? 0 : 1, truncated: false, ...(unknown ? { unknownFields: unknown } : {}) } };
