@@ -4,3 +4,4 @@ node_modules/
 .handoff/
 .dashclaw-local/
 .offlocal/
+.launch/
