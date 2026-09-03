@@ -17,6 +17,8 @@ if (Number(nodeVersion.split('.')[0]) < 24) {
   process.exit(EXIT.ERROR);
 }
 const { engines } = await import('../src/engines/index.mjs');
+// A reader that closes the pipe early (| head) is not an error worth a stack trace.
+process.stdout.on('error', e => { if (e.code === 'EPIPE') process.exit(0); throw e; });
 
 const started = Date.now();
 const CONTRACT = ['json', 'fields', 'limit', 'rows', 'dryRun', 'full', 'help',

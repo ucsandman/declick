@@ -29,6 +29,8 @@ if (Number(nodeVersion.split('.')[0]) < 24) {
   process.exit(EXIT.ERROR);
 }
 const { engines, pickEngine, ENGINE_INFO } = await import('../src/engines/index.mjs');
+// `declick add big-spec | head` closes the pipe before the envelope is fully written; that is the reader's choice, not an error.
+process.stdout.on('error', e => { if (e.code === 'EPIPE') process.exit(0); throw e; });
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
