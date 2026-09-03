@@ -140,17 +140,17 @@ test('the runtime unwraps a paged body end to end and keeps the cursor in meta',
   const env = { ...process.env, DECLICK_HOME: home, DECLICK_SKILLS: join(home, 'skills'), OPENCLAW_SKILLS: '', DECLICK_GUARD: '', DASHCLAW_API_KEY: '', DASHCLAW_URL: '' };
   const go = (bin, args) => new Promise(done => { const c = spawn(process.execPath, [bin, ...args], { env }); let stdout = '', stderr = ''; c.stdout.on('data', d => stdout += d); c.stderr.on('data', d => stderr += d); c.on('close', status => done({ status, stdout, stderr })); });
   try {
-    const add = await go('bin/declick.mjs', ['add', spec, '--name', 'pager']);
+    const add = await go('bin/declick.mjs', ['add', spec, '--name', 'pagedrows']);
     assert.equal(add.status, 0, add.stderr);
-    const r = await go('bin/run.mjs', ['pager', 'list-rows', '--limit', '1', '--json']);
+    const r = await go('bin/run.mjs', ['pagedrows', 'list-rows', '--limit', '1', '--json']);
     assert.equal(r.status, 0, r.stdout + r.stderr);
     const j = JSON.parse(r.stdout);
     assert.deepEqual(j.data, [{ id: 'a', name: 'A' }]);
     assert.equal(j.meta.rows, 'items'); assert.equal(j.meta.count, 2); assert.equal(j.meta.truncated, true);
     assert.deepEqual(j.meta.extra, { next: 'c2' });
-    const whole = JSON.parse((await go('bin/run.mjs', ['pager', 'list-rows', '--rows', 'next', '--json'])).stdout);
+    const whole = JSON.parse((await go('bin/run.mjs', ['pagedrows', 'list-rows', '--rows', 'next', '--json'])).stdout);
     assert.equal(whole.ok, false); assert.equal(whole.exit, 1); assert.match(whole.error, /no rows array at next; available: items, next/);
-    const desc = await go('bin/run.mjs', ['pager', 'describe', '--full', '--rows', 'items']);
+    const desc = await go('bin/run.mjs', ['pagedrows', 'describe', '--full', '--rows', 'items']);
     assert.equal(desc.status, 0, desc.stderr);
     assert.match(JSON.parse(desc.stdout).data.verbs[0].returns.rowsPath, /^items$/);
   } finally { srv.closeAllConnections(); await new Promise(r => srv.close(r)); }
