@@ -56,9 +56,12 @@ if [ -z "$err" ]; then ok "a mutating call with no guard key is silent on stderr
 echo "== path --install in a fresh login shell"
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) ok "skipped on Windows: path --install would setx the real user PATH" ;;
-  *) $D path --install >/dev/null 2>&1
+  *) inst="$($D path --install --json 2>&1)"
      shell="${SHELL:-/bin/bash}"
-     expect "short form on PATH in a login $(basename "$shell")" '"username":"user1"' "$shell" -lc "pety get-user-by-name user1 --fields username" ;;
+     got="$("$shell" -lc "pety get-user-by-name user1 --fields username" 2>&1)"
+     if printf '%s' "$got" | grep -q '"username":"user1"'; then ok "short form on PATH in a login $(basename "$shell")"
+     else files="$(cd ~ && ls -a | grep -E '^[.](bash_profile|bash_login|profile|zprofile)$' | paste -sd, -)"
+       bad "short form on PATH in a login $(basename "$shell")" "install: $(printf '%s' "$inst" | head -c 200) | shell: $(printf '%s' "$got" | head -c 200) | profile files: ${files:-none}"; fi ;;
 esac
 
 echo "== node guard"

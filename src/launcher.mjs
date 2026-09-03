@@ -33,7 +33,9 @@ export function profileFile() {
   const shell = process.env.SHELL || '';
   if (shell.endsWith('zsh')) return join(homedir(), '.zprofile');
   if (shell.endsWith('fish')) return join(homedir(), '.config', 'fish', 'config.fish');
-  if (shell.endsWith('bash') && process.platform === 'darwin' && existsSync(join(homedir(), '.bash_profile'))) return join(homedir(), '.bash_profile');
+  // bash reads the first of ~/.bash_profile, ~/.bash_login, ~/.profile that exists, on every platform: a line
+  // appended to ~/.profile is dead once either of the other two is present (GitHub's Ubuntu runner has one).
+  if (shell.endsWith('bash')) for (const f of ['.bash_profile', '.bash_login']) if (existsSync(join(homedir(), f))) return join(homedir(), f);
   return join(homedir(), '.profile');
 }
 
