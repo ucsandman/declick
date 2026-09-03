@@ -119,3 +119,7 @@ Remove the four adapters afterward with declick remove so no test skill leaks in
 The hero numbers (19 verbs, 1,583 characters) come from a third-party live spec at petstore3.swagger.io and can change without anyone touching the repo. The release checklist re-measures them before each recapture.
 
 After the terminal blocks are recaptured, rebuild og.png: render site/og.html with a headless Chromium at 1200x630, device scale 1, and overwrite site/og.png. The fonts are self-hosted now, so launch that browser with --allow-file-access-from-files, or the woff2 is blocked as a cross-origin fetch and the image renders in the fallback face with nothing logged. See Self-hosted fonts above. Confirm the file is under 300 KB, that the h1 still fits on two lines at its set size, and that CSS.getPlatformFontsForNode reports Archivo on the h1 before you keep the PNG.
+
+## Analytics and Search Console
+
+The page ships one script: Vercel Web Analytics, loaded deferred from /_vercel/insights/script.js on the same origin (no cookies, no third-party host). It is the only JavaScript on the site and nothing on the page depends on it; with JS disabled the page is unchanged. Enabled in the Vercel project on 2026-09-03. Google Search Console verifies https://declick.dev/ through the google-site-verification meta tag in the head of index.html; removing that tag revokes the verification.
