@@ -32,3 +32,5 @@ jobs:
         with:
           node-version: 24
       - run: npm run qa
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

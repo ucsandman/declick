@@ -38,7 +38,10 @@ expect "stripe describe pages with a footer" "more verbs \([0-9]+ total\)" $D de
 echo "== real calls, keyless"
 expect "openverse search returns rows" '"rows":"results"' $D run ov images-search --q cat --page_size 2 --limit 2 --fields title
 expect "weather point sends the User-Agent default and answers" '"properties.gridId"' $D run wx point 39.7456 -97.0892 --fields properties.gridId
-expect "github repository with --fields is the repository, not its topics" '"full_name":"ucsandman/declick"' $D run ghapi repos-get ucsandman declick --fields full_name,stargazers_count
+# A CI runner's IP shares GitHub's 60/hour unauthenticated budget with every other runner; the token the workflow
+# already holds lifts that, and the check still proves the same --fields behaviour. Locally, no token, same call.
+GH_AUTH=(); [ -n "${GITHUB_TOKEN:-}" ] && GH_AUTH=(--header "Authorization: Bearer $GITHUB_TOKEN")
+expect "github repository with --fields is the repository, not its topics" '"full_name":"ucsandman/declick"' $D run ghapi repos-get ucsandman declick "${GH_AUTH[@]}" --fields full_name,stargazers_count
 expect "petstore user endpoint (README quickstart line 4)" '"username":"user1"' $D run pety get-user-by-name user1 --fields username,email
 
 echo "== auth and contract"

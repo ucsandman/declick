@@ -16,5 +16,9 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm test
       # Six public specs, real calls, the auth path and the Node guard, from this checkout: no release ships blind again.
+      # The GitHub check is authenticated with the run's own token: an unauthenticated runner IP shares a 60/hour
+      # budget with every other runner and blocked the 0.5.0 publish with a 403.
       - run: npm run qa
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: npm publish --provenance --access public
