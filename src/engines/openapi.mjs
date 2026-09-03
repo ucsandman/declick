@@ -1,6 +1,6 @@
 import { existsSync, openAsBlob, readFileSync, writeFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
-import { loadEnv, vaultPath } from '../creds.mjs';
+import { loadEnv, vaultPath, mintHint } from '../creds.mjs';
 import { EXIT, RESERVED, camel } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 import { toOpenApi3 } from './swagger2.mjs';
@@ -129,9 +129,14 @@ export async function compile(source, { name, verbs: only, tag } = {}) {
       if (tag && !(op.tags || []).includes(tag)) continue;
       if (wanted?.length && !wanted.includes(vname)) continue;
       const merged = [...(ops.parameters || []), ...(op.parameters || [])].map(p => deref(spec, p));
-      const params = [...new Map(merged.map(p => [`${p.in}:${p.name}`, p])).values()];
+      // A dangling or remote $ref derefs to {}: no name, no in, nothing to report by name. That is not
+      // a location declick refuses, it is a parameter declick never saw, so it is counted, not named.
+      const named = merged.filter(p => p.name && p.in);
+      const unresolved = merged.length - named.length;
+      const params = [...new Map(named.map(p => [`${p.in}:${p.name}`, p])).values()];
       // A location declick cannot send is said out loud; silently dropping it would produce a wrong request.
       for (const p of params) if (!LOCATIONS.includes(p.in)) process.stderr.write(`${vname}: skipping parameter ${p.name} in ${p.in}; declick sends path, query, header and cookie\n`);
+      if (unresolved) process.stderr.write(`${vname}: skipping ${unresolved} parameter${unresolved > 1 ? 's' : ''} that could not be resolved ($ref did not resolve to a parameter)\n`);
       const paramFlag = p => { const s = deref(spec, p.schema); return flagOf(p.in === 'header' ? p.name.toLowerCase() : p.name, p.description, !!p.required, s.type, { ...(p.in === 'query' ? {} : { in: p.in }), ...facetsOf(s, p) }); };
       const args = params.filter(p => p.in === 'path').map(p => { const s = deref(spec, p.schema); return { name: p.name, required: true, type: s.type, ...facetsOf(s, p) }; });
       const query = params.filter(p => p.in === 'query').map(paramFlag);
@@ -334,7 +339,7 @@ async function buildRequest(m, v, positional, flags) {
   const alts = (sec.length ? sec : [[]]).map(a => a.filter(s => m.auth.schemes?.[s]));
   const envs = a => a.map(s => m.auth.schemes[s].env);
   const chosen = flags.dryRun ? alts[0] : alts.find(a => !loadEnv(envs(a)).missing.length);
-  if (!chosen) throw fail(`set ${alts.map(a => envs(a).join(' + ')).join(' or ')} in the environment or ${vaultPath()} (or run: creds mint ${m.name})`, EXIT.AUTH);
+  if (!chosen) throw fail(`set ${alts.map(a => envs(a).join(' + ')).join(' or ')} in the environment or ${vaultPath()}${mintHint(m.name)}`, EXIT.AUTH);
   const { found } = loadEnv(envs(chosen));
   for (const s of chosen) {
     const sch = m.auth.schemes[s];

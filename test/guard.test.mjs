@@ -132,7 +132,7 @@ test('a 500, a garbage body and a timeout block by default and only warn with DE
   mode = 'allow';
   for (const k of ['DASHCLAW_API_KEY', 'DASHCLAW_URL', 'DASHCLAW_TIMEOUT_MS']) delete process.env[k];
   const off = await guard({ tool: 'gov', action: 'x', engine: 'openapi', method: 'post' });
-  assert.deepEqual(off, { allowed: true, decision: 'skipped', reason: 'no DASHCLAW_API_KEY' });
+  assert.deepEqual(off, { allowed: true, decision: 'skipped', reason: 'no guard configured' });
 });
 
 const desktopVerb = mutating => ({ name: 'add', description: 'Add', mutating, args: [], flags: [],

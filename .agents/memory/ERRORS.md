@@ -1,5 +1,10 @@
 # Errors
 
+## 2026-09-03
+
+- A reviewer in the second fix-findings workflow ran `git stash` on the shared working tree to prove a test failed without its fix; the `git stash pop` conflicted on a sibling agent's edit to `src/skill.mjs`, git kept the stash, and the whole first fix pass (25 files) sat reverted under six concurrent agents. Reconciled by classifying each stashed file against HEAD and the stash, restoring sixteen from the stash and three-way merging four (fix: `git-tree-guard` hook denies stash/checkout/restore/reset/clean in Bash, the fix-findings workflow injects a shared-tree block into every prompt, and the REVERT-TO-RED dispatch block now says baselines come from copies).
+- Pre-launch QA on the published 0.3.0 found real-world failures the suite never saw: large specs sniffed as web pages, lint refusing spec descriptions and any surface over 2000 chars, the YAML parser dropping zero-indent sequences and multi-line scalars, a Node 18/20 stack trace before the version check, `export` output that `import` refused, and the launcher collision guard refusing declick's own launchers after `path --install` (fix: the two fix-findings passes recorded in CHANGELOG 0.3.1; lesson: QA the published package on Linux and macOS with real public sources before every release, not only the suite on Windows).
+
 ## 2026-09-02
 
 - Subagents wrote adapters into the real `~/.claude/skills` when `DECLICK_SKILLS` was set in a separate shell call instead of on the same command line as the `declick` invocation (fix: env prefix on the same command line, always; three leaked skill dirs deleted).

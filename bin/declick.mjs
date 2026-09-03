@@ -8,15 +8,27 @@ import { HOME, KEBAB, loadManifest, saveManifest, listManifests, manifestDir } f
 import { describe, describeJson } from '../src/describe.mjs';
 import { lint } from '../src/lint.mjs';
 import { parseFlags, emit, camel, BOOLS, EXIT } from '../src/output.mjs';
-import { engines, pickEngine, ENGINE_INFO } from '../src/engines/index.mjs';
 import { writeLauncher, removeLauncher, canWriteLauncher, binDir, onPath, pathHint } from '../src/launcher.mjs';
-import { writeSkill, writeSelfSkill, removeSkill, canWriteSkill, skillDirs } from '../src/skill.mjs';
+import { writeSkill, writeSelfSkill, removeSkill, canWriteSkill, skillDirs, skillText } from '../src/skill.mjs';
 import { importRecipes, loadRecipe, listRecipes, removeRecipe, recipesDir, validateStoredRecipe } from '../src/recipes.mjs';
 import { author } from '../src/author.mjs';
 import { startUi, adapterRows } from '../src/ui.mjs';
 import { DESK } from '../src/engines/desktop.mjs';
-import { loadEnv, vaultPath } from '../src/creds.mjs';
+import { loadEnv, vaultPath, mintHint } from '../src/creds.mjs';
 import { guardUrl, isStrict } from '../src/guard.mjs';
+
+// ESM evaluates every static import before this module's own body runs, and src/engines/index.mjs statically
+// imports every engine including sqlite.mjs, which imports node:sqlite: on Node <24 that throws
+// ERR_UNKNOWN_BUILTIN_MODULE before this check could ever run. Loading it dynamically, gated here, turns that
+// raw stack trace into one line for every command including doctor. DECLICK_NODE_VERSION overrides for tests.
+const nodeVersion = process.env.DECLICK_NODE_VERSION || process.versions.node;
+if (Number(nodeVersion.split('.')[0]) < 24) {
+  const msg = `declick needs Node 24 or newer (found v${nodeVersion}); the sqlite engine uses node:sqlite`;
+  if (!process.stdout.isTTY) process.stdout.write(JSON.stringify({ ok: false, error: msg, exit: EXIT.ERROR }) + '\n');
+  else process.stderr.write(`error: ${msg}\n`);
+  process.exit(EXIT.ERROR);
+}
+const { engines, pickEngine, ENGINE_INFO } = await import('../src/engines/index.mjs');
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version;
@@ -63,8 +75,8 @@ const COMMANDS = [
   C('proposals', 'authoring proposals whose replay failed, waiting to be accepted', [P('name')], [], { examples: ['declick proposals calc'] }),
   C('recipes', 'stored desktop recipes for an adapter', [P('name')], [], { examples: ['declick recipes calc'] }),
   C('recipe', 'one stored recipe, step by step', [P('name'), P('verb')], [], { examples: ['declick recipe calc add'] }),
-  C('skill', 'regenerate SKILL.md for one adapter or all of them', [P('name', false)], [F('force', 'boolean', 'overwrite a SKILL.md declick did not write')],
-    { mutating: true, dryRun: true, examples: ['declick skill', 'declick skill petstore'] }),
+  C('skill', 'regenerate SKILL.md for one adapter or all of them', [P('name', false)], [F('force', 'boolean', 'overwrite a SKILL.md declick did not write'), F('print', 'boolean', 'write the SKILL.md text to stdout instead of disk (needs <name>)')],
+    { mutating: true, dryRun: true, examples: ['declick skill', 'declick skill petstore', 'declick skill petstore --print'] }),
   C('remove', 'delete an adapter (manifest, launcher, skill) or one desktop verb', [P('name'), P('verb', false)],
     [F('force', 'boolean', 'remove the last verb, which deletes the adapter')], { mutating: true, dryRun: true, examples: ['declick remove petstore', 'declick remove calc add --force'] }),
   C('export', 'the adapter and its recipes as one bundle on stdout', [P('name')], [], { examples: ['declick export petstore > bundle.json'] }),
@@ -115,7 +127,9 @@ const nearest = (word, list, max = 3, take = 3) => list.map(n => [n, distance(wo
 // An unknown command answers with the nearest names, never with the whole usage blob: the agent asked for one thing.
 const unknownCommand = c => `unknown command ${c}${nearest(c, COMMANDS.map(x => x.name)).length ? `; did you mean ${nearest(c, COMMANDS.map(x => x.name)).join(', ')}?` : ''}; run: declick commands`;
 
-const fail = (msg, exit = EXIT.ERROR) => { throw Object.assign(new Error(msg), { exit }); };
+const fail = (msg, exit = EXIT.ERROR, data) => { throw Object.assign(new Error(msg), { exit, ...(data !== undefined ? { data } : {}) }); };
+// A lint report can run hundreds of lines (a big spec, every verb over budget); the error string stays skimmable, the full list rides in data.
+const lintFailMsg = errs => `lint failed: ${errs.slice(0, 8).join('; ')}${errs.length > 8 ? ` ... and ${errs.length - 8} more` : ''}`;
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').split('-').slice(0, 4).join('-');
 const adapterName = (source, flags) => flags.name ? (KEBAB.test(flags.name) ? flags.name : fail(`name ${JSON.stringify(flags.name)} must be kebab-case; use --name ${slug(flags.name)}`)) : slug(source.replace(/^app:/, ''));
 const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
@@ -139,7 +153,7 @@ async function build(source, flags, dry = false) {
     const errs = lint(m);
     // Over budget is a choice about which verbs to keep, so the error carries the names --verbs would take.
     if (errs.some(e => /^describe is \d+ chars/.test(e))) errs.push(`verbs: ${m.verbs.slice(0, 30).map(v => v.name).join(', ')}${m.verbs.length > 30 ? ` ... (${m.verbs.length} total)` : ''}`);
-    if (errs.length) fail(`lint failed:\n  ${errs.join('\n  ')}`);
+    if (errs.length) fail(lintFailMsg(errs), EXIT.ERROR, { errors: errs });
   } catch (e) {
     if (fresh) rmSync(manifestDir(name), { recursive: true, force: true });
     throw e;
@@ -232,6 +246,10 @@ async function doctor() {
   const claude = which(process.env.DECLICK_CLAUDE || 'claude');
   const d = deskState();
   const adapters = listManifests();
+  const probes = await toolProbes();
+  // sqlite is both a compile target (ENGINE_INFO) and a runtime tool probe (node:sqlite); merge into one row.
+  const probeByName = new Map(probes.map(p => [p.name, p]));
+  const engineRows = ENGINE_INFO.map(e => probeByName.has(e.name) ? { ...e, ready: probeByName.get(e.name).ready, note: probeByName.get(e.name).note } : e);
   const checks = {
     node: { version: node, ok: Number(node.split('.')[0]) >= 24, need: '>=24' },
     home: { path: HOME, exists: existsSync(HOME), adapters: adapters.length },
@@ -242,7 +260,7 @@ async function doctor() {
     claude: { path: claude, found: !!claude, note: 'needed for declick add --goal / author / repair' },
     governance: await governanceState(),
     // Engines and the external tools they can use, in one list: one call answers "what can I build from this machine".
-    engines: [...ENGINE_INFO, ...await toolProbes()],
+    engines: [...engineRows, ...probes.filter(p => !ENGINE_INFO.some(e => e.name === p.name))],
   };
   const blocking = [], warnings = [];
   if (!checks.node.ok) blocking.push(`node ${node} is below 24; declick needs >=24`);
@@ -251,7 +269,7 @@ async function doctor() {
   if (adapters.some(n => readJson(join(manifestDir(n), 'manifest.json'))?.engine === 'desktop') && !d.exists) blocking.push(`deskclaw missing at ${d.path}; desktop verbs cannot run`);
   if (!checks.bin.onPath) warnings.push(`${binDir()} is not on PATH; ${checks.bin.fix}`);
   // healthy, not ok: an agent reading data.ok next to the envelope's ok cannot tell which one refused.
-  return { healthy: !blocking.length && !warnings.length, blocking, warnings, problems: [...blocking, ...warnings], ...checks };
+  return { healthy: !blocking.length, blocking, warnings, problems: [...blocking, ...warnings], ...checks };
 }
 
 // What a source would compile to, decided before anything is written: the router first, then the first 4KB of the file.
@@ -371,6 +389,8 @@ function checkFlags(c) {
   const i = raw.findIndex(t => t.startsWith('--') && camel(t.slice(2).split('=')[0]) === bad);
   const token = i > -1 ? raw[i].split('=')[0] : `--${kebabOf(bad)}`;
   const ate = i > -1 && !raw[i].includes('=') && raw[i + 1] !== undefined && !raw[i + 1].startsWith('--') ? raw[i + 1] : null;
+  // No command at all: there is no per-command flag list to be near, so a guess only counts on a one-character typo.
+  if (!cmd) { const near = nearest(kebabOf(bad), CONTRACT, 1, 1); fail(`unknown flag ${token}${ate ? ` (it consumed ${JSON.stringify(ate)})` : ''}${near.length ? `; did you mean --${near[0]}?` : ''}; run: declick help`); }
   const near = nearest(kebabOf(bad), [...c.flags.map(f => f.name), ...CONTRACT], 3, 1);
   fail(`unknown flag ${token} for ${c.name}${ate ? ` (it consumed ${JSON.stringify(ate)})` : ''}${near.length ? `; did you mean --${near[0]}?` : ''}; run: declick ${c.name} --help`);
 }
@@ -479,7 +499,7 @@ try {
       const { found, missing } = loadEnv(m.auth.env || []);
       const keys = (m.auth.env || []).map(n => ({ name: n, present: n in found, source: process.env[n] ? 'env' : n in found ? 'vault' : null }));
       const data = { name: arg, vault: vaultPath(), keys, missing };
-      result = missing.length ? { ok: false, exit: EXIT.AUTH, error: `missing ${missing.join(', ')}; set them in the environment or ${vaultPath()} (or run: creds mint ${arg}); a verb needs only one of its alternatives, see declick manifest ${arg}`, data } : { ok: true, data };
+      result = missing.length ? { ok: false, exit: EXIT.AUTH, error: `missing ${missing.join(', ')}; set them in the environment or ${vaultPath()}${mintHint(arg)}; a verb needs only one of its alternatives, see declick manifest ${arg}`, data } : { ok: true, data };
       text = keys.map(k => `${k.name}\t${k.present ? k.source : 'missing'}`).join('\n') || 'no auth needed'; break;
     }
     case 'engines': {
@@ -506,6 +526,12 @@ try {
     }
     case 'recipe': { result = { ok: true, data: loadRecipe(arg, arg2) }; text = JSON.stringify(result.data, null, 2); break; }
     case 'skill': {
+      // --print never touches disk: it hands back the same text writeSkill would have written, for an agent that wants to read it without a file.
+      if (flags.print) {
+        if (!arg) fail('usage: declick skill <name> --print');
+        const t = skillText(loadManifest(arg));
+        result = { ok: true, data: { name: arg, text: t } }; text = t; break;
+      }
       const names = arg ? [arg] : listManifests();
       if (dry) { const wouldWrite = names.flatMap(n => (loadManifest(n), skillDirs().map(d => join(d, n, 'SKILL.md')))).concat(skillDirs().map(d => join(d, 'declick', 'SKILL.md'))); result = { ok: true, data: { wouldWrite } }; text = wouldWrite.join('\n'); break; }
       const written = names.flatMap(n => writeSkill(loadManifest(n), { force: !!flags.force })).concat(writeSelfSkill(commandRows(), VERSION));
@@ -537,9 +563,11 @@ try {
         result = { ok: true, data: EXAMPLE_BUNDLE }; text = JSON.stringify(EXAMPLE_BUNDLE, null, 2); break;
       }
       const src = !arg || arg === '-' ? readFileSync(0, 'utf8') : readFileSync(arg, 'utf8');
-      const bundle = JSON.parse(src);
+      let bundle = JSON.parse(src);
+      // export (and import --example) print the {ok,data,meta} envelope whenever stdout is piped or redirected, which is the common case; unwrap it here so the round trip works without asking for --json false.
+      if (bundle.ok === true && bundle.data?.manifest) bundle = bundle.data;
       const m = bundle.manifest || fail('bundle needs a manifest field');
-      const errs = lint(m); if (errs.length) fail(`lint failed:\n  ${errs.join('\n  ')}`);
+      const errs = lint(m); if (errs.length) fail(lintFailMsg(errs), EXIT.ERROR, { errors: errs });
       const recipes = Object.entries(bundle.recipes || {});
       for (const [verb, recipe] of recipes) { const e = validateStoredRecipe(recipe); if (e.length) fail(`invalid recipe ${verb}.json: ${e.join('; ')}`); }
       // Importing over an adapter that answers to a different service is a silent hijack; name what moved.
@@ -674,7 +702,10 @@ try {
     // Every name in COMMANDS with no case here is reserved on purpose, so --help and the skill already describe it.
     default: fail(`declick ${cmd} is reserved but not implemented in ${VERSION}; run: declick commands`);
   }
-} catch (e) { result = { ok: false, error: e.message, exit: e.exit ?? EXIT.ERROR }; }
+} catch (e) {
+  const msg = e.code === 'ENOENT' && e.path ? `no such file: ${e.path}` : e.message;
+  result = { ok: false, error: msg, exit: e.exit ?? EXIT.ERROR, ...(e.data !== undefined ? { data: e.data } : {}) };
+}
 
 const out = emit(result, { json, fields: flags.fields, limit: flags.limit, dryRun: preview });
 // doctor is a report that happens to carry problems: on a terminal the report still goes to stdout, the problems to stderr.

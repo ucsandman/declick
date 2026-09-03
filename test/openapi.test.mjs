@@ -66,6 +66,48 @@ test('$ref params resolve and path level params lose to the operation', () => {
   assert.deepEqual(edge.verbs.find(v => v.name === 'get-items-id').args, [{ name: 'id', required: true, type: 'string' }]);
 });
 
+test('a $ref path parameter and a $ref query parameter resolve with no stderr', async () => {
+  const p = join(mkdtempSync(join(tmpdir(), 'declick-')), 'refs.json');
+  writeFileSync(p, JSON.stringify({
+    openapi: '3.0.0', info: { title: 'Refs' }, servers: [{ url: 'https://refs.test' }],
+    paths: { '/providers/{provider}': {
+      parameters: [{ $ref: '#/components/parameters/Provider' }],
+      get: { operationId: 'getProvider', parameters: [{ $ref: '#/components/parameters/Limit' }], responses: {} },
+    } },
+    components: { parameters: {
+      Provider: { name: 'provider', in: 'path', required: true, schema: { type: 'string' } },
+      Limit: { name: 'limit', in: 'query', schema: { type: 'integer' } },
+    } },
+  }));
+  const seen = [];
+  const real = process.stderr.write.bind(process.stderr);
+  process.stderr.write = s => { seen.push(s); return true; };
+  let m;
+  try { m = await compile(p, { name: 'refs' }); } finally { process.stderr.write = real; }
+  assert.deepEqual(m.verbs[0].args, [{ name: 'provider', required: true, type: 'string' }]);
+  assert.ok(m.verbs[0].flags.some(f => f.wire === 'limit'));
+  assert.deepEqual(seen, []);
+  assert.deepEqual(lint(m), []);
+});
+
+test('a $ref parameter that does not resolve is dropped silently and counted, never printed as undefined', async () => {
+  const p = join(mkdtempSync(join(tmpdir(), 'declick-')), 'dangling.json');
+  writeFileSync(p, JSON.stringify({
+    openapi: '3.0.0', info: { title: 'Dangling' }, servers: [{ url: 'https://dangling.test' }],
+    paths: { '/items': { get: { operationId: 'listItems', parameters: [{ $ref: '#/components/parameters/Missing' }], responses: {} } } },
+    components: { parameters: {} },
+  }));
+  const seen = [];
+  const real = process.stderr.write.bind(process.stderr);
+  process.stderr.write = s => { seen.push(s); return true; };
+  let m;
+  try { m = await compile(p, { name: 'dangling' }); } finally { process.stderr.write = real; }
+  assert.deepEqual(m.verbs[0].args, []);
+  assert.deepEqual(m.verbs[0].flags, []);
+  assert.ok(!seen.some(s => /undefined/.test(s)), seen.join(''));
+  assert.ok(seen.some(s => /list-items: skipping 1 parameter that could not be resolved/.test(s)), seen.join(''));
+});
+
 test('unsupported schemes are dropped with a warning', () => {
   assert.deepEqual(edge.auth.env, ['EDGE_OAUTH', 'EDGE_SESSION']);
   assert.equal(edge.auth.schemes.mtls, undefined);

@@ -7,6 +7,7 @@ process.env.CREDS_VAULT = join(tmpdir(), `declick-mcp-none-${process.pid}.env`);
 const { compile, execute } = await import('../src/engines/mcp.mjs');
 import { validateManifest } from '../src/manifest.mjs';
 import { lint } from '../src/lint.mjs';
+import { mcpClient } from '../src/mcp-client.mjs';
 
 const STDIO = 'mcp:node fixtures/mcp-server.mjs';
 const flagOf = (v, name) => v.flags.find(f => f.name === name);
@@ -199,4 +200,19 @@ test('a long command needs --name and a bad source says what a source looks like
   assert.match(long.message, /--name/);
   const empty = await compile('mcp:').then(() => null, x => x);
   assert.match(empty.message, /usage: declick add mcp:/);
+});
+
+// npx resolves to a .cmd shim on Windows; spawning it used shell:true, which Node 24 flags as DEP0190 on every call.
+test('the npx stdio path on windows does not print the DEP0190 shell warning', async t => {
+  if (process.platform !== 'win32') return t.skip('windows-only');
+  const warnings = [];
+  const onWarning = w => warnings.push(w.code);
+  process.on('warning', onWarning);
+  const c = mcpClient({ transport: 'stdio', command: 'npx', args: ['node', 'fixtures/mcp-server.mjs'] });
+  try {
+    await c.connect();
+    const tools = await c.listTools();
+    assert.deepEqual(tools.map(x => x.name), ['list_notes', 'add_note', 'boom']);
+  } finally { c.close(); process.off('warning', onWarning); }
+  assert.ok(!warnings.includes('DEP0190'), `got warnings: ${warnings.join(', ')}`);
 });

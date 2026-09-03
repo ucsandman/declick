@@ -73,8 +73,10 @@ function stdioClient({ command, args = [], timeout }) {
       if (child) return;
       // Windows resolves npx/npm/pnpm through .cmd shims, which node refuses to spawn directly since 20.19.
       const shell = process.platform === 'win32' && /^(npx|npm|pnpm|yarn|bunx)$/i.test(command);
-      // Same rule as the cli engine: under a shell every argument is quoted, or a & or > in one starts a second command.
-      child = spawn(command, shell ? args.map(cmdQuote) : args, { stdio: ['pipe', 'pipe', 'pipe'], shell, windowsHide: true });
+      // cmd.exe spawned directly (not shell:true) avoids Node's DEP0190 warning; command and args become one quoted string per cmd.exe /c rules.
+      child = shell
+        ? spawn('cmd.exe', ['/d', '/s', '/c', `"${[command, ...args.map(cmdQuote)].join(' ')}"`], { stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: true, windowsHide: true })
+        : spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       child.stdin.on('error', () => {}); // a server that exits mid-write surfaces as the exit below, not as EPIPE
       let buf = Buffer.alloc(0);
       child.stdout.on('data', d => { buf = drain(Buffer.concat([buf, d]), onMessage); });

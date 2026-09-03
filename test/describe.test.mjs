@@ -59,9 +59,36 @@ test('describeJson is the manifest minus internals', () => {
   assert.deepEqual(describeJson(m, { verb: 'add-pet' }).verbs.map(v => v.name), ['add-pet']);
 });
 test('lint passes a good manifest', () => assert.deepEqual(lint(m), []));
-test('lint fails oversized describe and names the filter flags', () => {
-  const big = { ...m, verbs: Array.from({ length: 80 }, (_, i) => ({ name: `verb-${i}`, description: 'x'.repeat(60), args: [], flags: [], mutating: false })) };
-  assert.ok(lint(big).some(e => /2000/.test(e) && /--verbs/.test(e)));
+const manyVerbs = n => Array.from({ length: n }, (_, i) => ({ name: `verb-${i}`, description: `Does thing number ${i} to a resource`, args: [], flags: [], mutating: false }));
+test('describe pages a large surface: stays under 2000 chars with a footer naming the total', () => {
+  const big = { ...m, verbs: manyVerbs(300) };
+  const s = describe(big);
+  assert.ok(s.length < 2000, `length ${s.length}`);
+  const footer = s.match(/\.\.\. (\d+) more verbs \(300 total\): declick describe pet --grep <text> \| --offset N --limit N \| --verb v$/m);
+  assert.ok(footer, s);
+  const shown = (s.match(/^  verb-\d+/gm) || []).length;
+  assert.equal(shown + Number(footer[1]), 300);
+});
+test('describe --offset --limit shows exactly the requested page and a footer of what is left', () => {
+  const big = { ...m, verbs: manyVerbs(300) };
+  const s = describe(big, { offset: 280, limit: 10 });
+  assert.ok(s.includes('verb-280') && s.includes('verb-289'));
+  assert.ok(!s.includes('verb-279') && !s.includes('verb-290'));
+  assert.match(s, /\.\.\. 10 more verbs \(300 total\)/);
+});
+test('describe has no footer when the whole surface already fits', () => {
+  const small = { ...m, verbs: manyVerbs(12) };
+  assert.ok(!describe(small).includes('more verbs'));
+});
+test('describe --offset --limit coerces string flags the way a CLI parser would hand them over', () => {
+  const big = { ...m, verbs: manyVerbs(300) };
+  const s = describe(big, { offset: '280', limit: '10' });
+  assert.ok(s.includes('verb-280') && s.includes('verb-289') && !s.includes('verb-290'));
+  assert.match(s, /\.\.\. 10 more verbs \(300 total\)/);
+});
+test('lint passes a manifest with many verbs because describe pages itself', () => {
+  const big = { ...m, verbs: manyVerbs(300) };
+  assert.deepEqual(lint(big), []);
 });
 test('lint fails duplicate verbs', () => {
   assert.ok(lint({ ...m, verbs: [m.verbs[0], m.verbs[0]] }).some(e => /duplicate/.test(e)));

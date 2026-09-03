@@ -14,6 +14,7 @@ const runtime = (args, extra = {}) => spawnSync(process.execPath, ['bin/run.mjs'
 // Async twin for tests that also run a server in this process: spawnSync would block the server's event loop.
 const runtimeAsync = (args, extra = {}) => new Promise(res => { const c = spawn(process.execPath, ['bin/run.mjs', ...args], { env: { ...env, ...extra } }); let stdout = '', stderr = ''; c.stdout.on('data', d => stdout += d); c.stderr.on('data', d => stderr += d); c.on('close', status => res({ status, stdout, stderr })); });
 const J = r => { try { return JSON.parse(r.stdout); } catch { throw new Error(`not json (exit ${r.status}): ${r.stdout}\n${r.stderr}`); } };
+const WIN = process.platform === 'win32';
 
 test('add compiles, lints, writes launcher, skill and the declick self skill; piped output is the envelope', () => {
   const r = run(['add', 'fixtures/petstore.json', '--name', 'petstore']);
@@ -21,7 +22,7 @@ test('add compiles, lints, writes launcher, skill and the declick self skill; pi
   const j = J(r);
   assert.equal(j.ok, true); assert.equal(j.data.name, 'petstore'); assert.equal(j.data.engine, 'openapi'); assert.equal(j.meta.count, 1);
   assert.ok(existsSync(join(home, 'petstore', 'manifest.json')));
-  assert.ok(existsSync(join(home, 'bin', 'petstore.cmd')));
+  assert.equal(existsSync(join(home, 'bin', 'petstore.cmd')), WIN);
   const skill = readFileSync(join(skills, 'petstore', 'SKILL.md'), 'utf8');
   assert.match(skill, /^---\nname: petstore\ndescription: "/); assert.match(skill, /petstore describe/); assert.match(skill, /declick run petstore/);
   assert.match(skill, /petstore get-pet-by-id PETID/);
@@ -47,6 +48,9 @@ test('errors are envelopes on stdout with the contract exit code', () => {
   assert.equal(run(['add', 'mcp:foo', '--name', 'foo']).status, 1); assert.match(J(run(['add', 'mcp:foo', '--name', 'foo'])).error, /cannot start foo/);
   assert.equal(run(['add', 'fixtures/petstore.json', '--name', 'Bad_Name']).status, 1); assert.match(J(run(['add', 'fixtures/petstore.json', '--name', 'Bad_Name'])).error, /--name bad-name/);
   assert.equal(run(['remove', '../escape']).status, 1);
+  // A missing local source is a hand-written message, not a raw Node fs error.
+  const enoent = J(run(['add', './nothing.json', '--name', 'x']));
+  assert.match(enoent.error, /^no such file: .*nothing\.json$/); assert.ok(!enoent.error.includes('ENOENT'), enoent.error);
 });
 test('help, version, engines, path, doctor', () => {
   assert.equal(run(['help']).status, 0); assert.equal(run([]).status, 0); assert.equal(run(['--help']).status, 0);
@@ -58,6 +62,11 @@ test('help, version, engines, path, doctor', () => {
   assert.equal(dj.data.node.ok, true); assert.equal(dj.data.home.adapters, 1); assert.equal(dj.data.bin.onPath, false); assert.match(dj.data.problems[0], /PATH/);
   assert.equal(dj.data.desk.exists, false); assert.equal(d.status, 0, 'PATH is a problem, not a failure');
 });
+test('a top-level unknown flag with no command names itself, not a random command', () => {
+  const r = run(['--nope']);
+  assert.equal(r.status, 1);
+  assert.equal(J(r).error, 'unknown flag --nope; run: declick help');
+});
 test('engines --source routes through pickEngine, not the stale sniff table', () => {
   for (const [source, engine] of [
     ['fixtures/postman.json', 'postman'], ['fixtures/sample.har', 'har'], ['fixtures/graphql-schema.json', 'graphql'],
@@ -67,12 +76,13 @@ test('engines --source routes through pickEngine, not the stale sniff table', ()
     assert.deepEqual([j.data.engine, j.data.ready, j.data.next], [engine, true, `declick add ${source}`], source);
   }
 });
-test('doctor: warnings without blocking is ok:true, exit 0, healthy:false', () => {
+test('doctor: warnings without blocking is ok:true, exit 0, healthy:true', () => {
   const freshHome = mkdtempSync(join(tmpdir(), 'declick-doctor-'));
   const d = run(['doctor'], { DECLICK_HOME: freshHome });
   assert.equal(d.status, 0, d.stderr);
   const j = J(d);
-  assert.equal(j.ok, true); assert.equal(j.data.healthy, false); assert.equal(j.data.blocking.length, 0); assert.ok(j.data.warnings.length > 0);
+  // healthy tracks blocking only: README says healthy is true whenever blocking is empty, warnings or not.
+  assert.equal(j.ok, true); assert.equal(j.data.healthy, true); assert.equal(j.data.blocking.length, 0); assert.ok(j.data.warnings.length > 0);
 });
 test('doctor: a blocking problem is ok:false, exit 1, error is the blocking reason', () => {
   const freshHome = mkdtempSync(join(tmpdir(), 'declick-doctor-'));
@@ -108,9 +118,10 @@ test('runtime unknown verb exits 2, missing auth exits 4 and names the vault', (
   const a = run(['auth', 'petstore']); assert.equal(a.status, 4); assert.deepEqual(J(a).data.missing, ['PETSTORE_API_KEY']);
   const ok = run(['auth', 'petstore'], { PETSTORE_API_KEY: 'k' }); assert.equal(ok.status, 0); assert.equal(J(ok).data.keys[0].source, 'env');
 });
-test('mutating without governance warns on stderr and still returns the contract exit code', () => {
+test('mutating without governance stays silent on stderr and still returns the contract exit code', () => {
   const r = runtime(['petstore', 'delete-pet', '7'], { PETSTORE_API_KEY: 'k' });
-  assert.match(r.stderr, /ungoverned mutating call/);
+  assert.equal(r.stderr, '');
+  assert.equal(J(r).meta.governance.reason, 'no guard configured');
   assert.ok([0, 1, 2, 4].includes(r.status), `exit ${r.status}`);
 });
 test('governance: block is a JSON envelope with exit 3, 401 warns, a hung guard times out, strict blocks', async () => {
@@ -176,6 +187,14 @@ test('export then import rebuilds an adapter', () => {
   assert.ok(existsSync(join(home, 'petstore-copy', 'manifest.json')));
   assert.equal(run(['remove', 'petstore-copy']).status, 0);
 });
+test('export piped straight to a file (the ok/data envelope, not just .data) still imports', () => {
+  // What `declick export petstore > bundle.json` actually writes: stdout is a redirect, not a tty, so it is json by default.
+  const e = run(['export', 'petstore']); assert.equal(e.status, 0);
+  assert.equal(J(e).ok, true, 'sanity: raw stdout is the {ok,data,meta} envelope');
+  writeFileSync(join(home, 'raw-bundle.json'), e.stdout);
+  const i = run(['import', join(home, 'raw-bundle.json')]);
+  assert.equal(i.status, 0, i.stdout + i.stderr); assert.equal(J(i).data.name, 'petstore');
+});
 test('status carries last run and last error', () => {
   const s = J(run(['status', 'gov'])).data;
   assert.equal(s.name, 'gov'); assert.equal(s.lastRun.verb, 'delete-pet'); assert.equal(s.lastRun.exit, 0);
@@ -187,7 +206,7 @@ test('remove deletes adapter, launcher and skill', () => {
   assert.ok(!existsSync(join(home, 'petstore')));
   assert.ok(!existsSync(join(home, 'bin', 'petstore.cmd'))); assert.ok(!existsSync(join(home, 'bin', 'petstore')));
   assert.ok(!existsSync(join(skills, 'petstore')));
-  assert.equal(J(r).data.launcher.length, 2);
+  assert.equal(J(r).data.launcher.length, WIN ? 2 : 1);
 });
 test('add desktop adapter from recipes dir, then recipes and recipe show it', () => {
   const r = run(['add', 'app:Calculator', '--name', 'calcx', '--recipes', 'fixtures/calculator']);
@@ -213,7 +232,7 @@ test('add app: with --goal authors and builds', () => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.equal(J(r).data.engine, 'desktop'); assert.equal(J(r).data.verbs[0].name, 'add');
   assert.ok(existsSync(join(home, 'calc-auth', 'recipes', 'add.json')));
-  assert.ok(existsSync(join(home, 'bin', 'calc-auth.cmd')));
+  assert.equal(existsSync(join(home, 'bin', 'calc-auth.cmd')), WIN);
 });
 test('author adds a second verb to an existing adapter', () => {
   const r = cli(['author', 'calc-auth', '--goal', 'read the display', '--verb', 'show'], { FAKE_AUTHOR_RECIPE: JSON.stringify({ ...goodRecipe, verb: 'show', args: [], example: [], steps: [{ window: 'Calculator' }, { find: ['Text:Display is*'], as: 'out' }, { read: 'out', as: 'result' }] }) });
@@ -288,7 +307,7 @@ test('remove --dry-run previews the deletion and deletes nothing', () => {
   assert.equal(r.status, 0, r.stderr); const j = J(r);
   assert.equal(j.ok, true); assert.equal(j.meta.dryRun, true);
   assert.equal(j.data.wouldRemove.manifest, join(home, 'pets'));
-  assert.equal(j.data.wouldRemove.launcher.length, 2); assert.deepEqual(j.data.wouldRemove.skill, [join(skills, 'pets')]);
+  assert.equal(j.data.wouldRemove.launcher.length, WIN ? 2 : 1); assert.deepEqual(j.data.wouldRemove.skill, [join(skills, 'pets')]);
   assert.ok(existsSync(join(home, 'pets', 'manifest.json'))); assert.ok(existsSync(join(skills, 'pets', 'SKILL.md')));
   assert.equal(run(['remove', 'pets']).status, 0);
 });
@@ -322,7 +341,7 @@ test('removing the last desktop recipe needs --force', () => {
   assert.ok(existsSync(join(home, 'calc-last', 'recipes', 'add.json')), 'dry-run removes nothing');
   const f = cli(['remove', 'calc-last', 'add', '--force']);
   assert.equal(f.status, 0, f.stdout + f.stderr); const j = J(f);
-  assert.equal(j.data.adapterRemoved, true); assert.deepEqual(j.data.remaining, []); assert.equal(j.data.launcher.length, 2);
+  assert.equal(j.data.adapterRemoved, true); assert.deepEqual(j.data.remaining, []); assert.equal(j.data.launcher.length, WIN ? 2 : 1);
   assert.ok(!existsSync(join(home, 'calc-last')));
 });
 test('import refuses a bundle whose manifest carries injected text and writes nothing', () => {
@@ -346,6 +365,21 @@ test('import refuses a bundle whose manifest carries injected text and writes no
   assert.equal(ret.status, 1, ret.stdout); assert.match(J(ret).error, /returns\.fields\[0\]\.name must be one line/);
   assert.ok(!existsSync(join(home, 'evil-returns')), 'no manifest');
   assert.equal(run(['remove', 'evil-src']).status, 0);
+});
+test('a lint failure with many errors caps the message at 8, full list in data.errors', () => {
+  assert.equal(run(['add', 'fixtures/petstore.json', '--name', 'lint-src']).status, 0);
+  const base = J(run(['export', 'lint-src'])).data;
+  // Ten verbs sharing a name: nine "duplicate verb" errors, more than the 8-error cap.
+  const verbs = Array.from({ length: 10 }, (_, i) => ({ name: 'thing', description: `verb ${i}`, mutating: false, args: [] }));
+  writeFileSync(join(home, 'lintbomb.json'), JSON.stringify({ ...base, manifest: { ...base.manifest, name: 'lint-bomb', verbs } }));
+  const r = run(['import', join(home, 'lintbomb.json')]);
+  assert.equal(r.status, 1, r.stdout);
+  const j = J(r);
+  assert.equal(j.data.errors.length, 9, 'nine duplicates recorded in full');
+  assert.equal(j.error.split('; ').length, 8, 'message keeps only the first 8');
+  assert.match(j.error, / \.\.\. and 1 more$/);
+  assert.ok(!existsSync(join(home, 'lint-bomb')), 'no manifest written');
+  assert.equal(run(['remove', 'lint-src']).status, 0);
 });
 test('import over an existing adapter refuses on a different source and replaces with --force', () => {
   assert.equal(run(['add', 'fixtures/petstore.json', '--name', 'twin']).status, 0);
@@ -395,6 +429,26 @@ test('--dry-run leaves a read-only command alone, and --limit never unwraps a re
   assert.equal(J(run(['remove', 'shape-pets', '--dry-run'])).meta.dryRun, true, 'a command that writes still previews');
   assert.equal(run(['remove', 'shape-pets']).status, 0);
 });
+test('a verb with a compiled rowsPath only auto-unwraps once --fields or --limit is asked for', async () => {
+  const srv = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ full_name: 'ucsandman/declick', private: false, topics: ['ai-agents', 'cli'] }));
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const spec = join(home, 'rows.json');
+  writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'Rows' }, servers: [{ url: base }], paths: { '/repo': { get: { operationId: 'getRepo', summary: 'Get repo',
+    responses: { 200: { content: { 'application/json': { schema: { type: 'object', properties: { full_name: { type: 'string' }, private: { type: 'boolean' }, topics: { type: 'array', items: { type: 'string' } } } } } } } } } } } }));
+  assert.equal(run(['add', spec, '--name', 'rows']).status, 0);
+  // The server lives in this process; spawnSync would freeze the event loop it needs to answer, so use the async spawn.
+  const plain = J(await runtimeAsync(['rows', 'get-repo']));
+  assert.deepEqual(plain.data, { full_name: 'ucsandman/declick', private: false, topics: ['ai-agents', 'cli'] }, 'no --fields/--limit: the resource itself, not the compiled rowsPath guess');
+  assert.equal(plain.meta.rows, undefined);
+  const limited = J(await runtimeAsync(['rows', 'get-repo', '--limit', '1']));
+  assert.equal(limited.meta.rows, 'topics', '--limit alone still asks for the compiled rowsPath');
+  srv.closeAllConnections(); await new Promise(r => srv.close(r));
+  assert.equal(run(['remove', 'rows']).status, 0);
+});
 test('--dry-run with a missing recipes path names the flag, not ENOENT', () => {
   const r = run(['add', 'app:Calculator', '--name', 'calc-no-dir', '--recipes', 'fixtures/does-not-exist', '--dry-run']);
   assert.equal(r.status, 1, r.stdout); assert.match(J(r).error, /^--dry-run needs a recipes directory/);
@@ -439,17 +493,18 @@ test('doctor separates blocking from warnings and probes the tools an engine nee
   assert.equal(d.status, 0, 'PATH is a warning, not a failure');
   const j = J(d);
   assert.equal(j.ok, true, 'ok is true when there is no blocking problem');
-  assert.equal(j.data.healthy, false); assert.deepEqual(j.data.blocking, []);
+  assert.equal(j.data.healthy, true, 'healthy tracks blocking, not warnings'); assert.deepEqual(j.data.blocking, []);
   assert.match(j.data.warnings[0], /PATH/); assert.match(j.data.problems[0], /PATH/);
   for (const t of ['mcporter', 'opencli', 'chrome', 'sqlite']) {
     const row = j.data.engines.find(e => e.name === t);
     assert.ok(row, `no probe for ${t}`); assert.equal(typeof row.ready, 'boolean'); assert.ok(row.note, `${t} has no note`);
   }
   assert.equal(j.data.engines.find(e => e.name === 'sqlite').ready, true, 'node:sqlite is built into node 24');
+  assert.equal(j.data.engines.filter(e => e.name === 'sqlite').length, 1, 'sqlite is both an engine and a tool probe; only one row');
   assert.equal(run(['add', 'app:Calculator', '--name', 'calc-doc', '--recipes', 'fixtures/calculator']).status, 0);
   const b = run(['doctor']);
   assert.equal(b.status, 1, 'a desktop adapter with no deskclaw is blocking');
-  assert.match(J(b).data.blocking[0], /deskclaw/);
+  assert.match(J(b).data.blocking[0], /deskclaw/); assert.equal(J(b).data.healthy, false);
   assert.equal(run(['remove', 'calc-doc']).status, 0);
   assert.equal(run(['doctor'], desk).status, 0);
 });
@@ -481,6 +536,10 @@ test('import --example prints a bundle that imports', () => {
   assert.equal(i.status, 0, i.stdout + i.stderr);
   assert.equal(J(i).data.name, bundle.manifest.name);
   assert.equal(run(['import', '--example', '--engine', 'desktop']).status, 1, 'only openapi has an example today');
+  // Same round trip, but with the raw envelope stdout `import --example > b.json; import b.json` would actually carry.
+  writeFileSync(join(home, 'raw-example-bundle.json'), e.stdout);
+  const ri = run(['import', join(home, 'raw-example-bundle.json')]);
+  assert.equal(ri.status, 0, ri.stdout + ri.stderr); assert.equal(J(ri).data.name, bundle.manifest.name);
 });
 test('a generated SKILL.md carries every required flag, the per-verb pointer, and the desktop preconditions', () => {
   const skill = readFileSync(join(skills, 'example-api', 'SKILL.md'), 'utf8');
@@ -512,19 +571,23 @@ test('proposals and recipes say so when there is nothing there', () => {
   assert.deepEqual(J(run(['proposals', 'empty-state'])).data, []);
   assert.equal(run(['remove', 'empty-state']).status, 0);
 });
-test('an over-budget describe names the verbs so --verbs can narrow it without reading the spec', () => {
+test('a surface too big for one page still adds, and describe pages itself with the total and the flags', () => {
   const paths = {};
   for (let i = 0; i < 60; i++) paths[`/thing${i}`] = { get: { operationId: `fetchNumber${i}`, summary: `Fetch thing number ${i} out of the collection` } };
   const spec = join(home, 'big.json');
   writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'Big' }, servers: [{ url: 'https://big.test' }], paths }));
   const r = run(['add', spec, '--name', 'big']);
-  assert.equal(r.status, 1, r.stdout);
-  const e = J(r).error;
-  assert.match(e, /describe is \d+ chars/);
-  assert.match(e, /verbs: /);
-  assert.ok(e.split('verbs: ')[1].split(', ').length >= 30, `only ${e.split('verbs: ')[1]}`);
-  assert.match(e, /60 total/);
-  assert.ok(!existsSync(join(home, 'big')), 'a refused build writes nothing');
+  assert.equal(r.status, 0, r.stdout);
+  assert.equal(J(r).data.verbs.length, 60);
+  const d = run(['describe', 'big', '--json', 'false']);
+  assert.equal(d.status, 0, d.stdout);
+  assert.ok(d.stdout.length < 2000, `describe is ${d.stdout.length} chars`);
+  assert.match(d.stdout, /60 total/);
+  assert.match(d.stdout, /--offset/);
+  assert.match(d.stdout, /--grep/);
+  const page = run(['describe', 'big', '--offset', '55', '--limit', '10', '--json', 'false']);
+  assert.match(page.stdout, /fetch-number59/);
+  assert.doesNotMatch(page.stdout, /fetch-number54 /);
 });
 test('declick audit reads the run log newest first and filters it', () => {
   const all = J(run(['audit', '--limit', '500'])).data;
@@ -692,4 +755,38 @@ test('a boolean flag from the command table never eats the next positional', () 
   assert.equal(r.status, 0, r.stderr);
   assert.ok(J(r).data.manifest, r.stdout.slice(0, 80));
   assert.equal(J(run(['import', '--example', 'openapi'])).data.manifest.engine, 'openapi');
+});
+// bin/declick.mjs statically imported src/engines/index.mjs, which statically imports every engine including
+// sqlite.mjs, which imports node:sqlite: on Node <24 that raised ERR_UNKNOWN_BUILTIN_MODULE before any command,
+// including doctor, could run. DECLICK_NODE_VERSION lets the guard be exercised without a second Node install.
+test('a Node below 24 fails clean, on every command, before node:sqlite ever loads', () => {
+  const old = { DECLICK_NODE_VERSION: '18.20.0' };
+  const d = run(['doctor'], old);
+  assert.equal(d.status, 1, d.stderr);
+  const j = J(d);
+  assert.equal(j.ok, false);
+  assert.equal(j.error, 'declick needs Node 24 or newer (found v18.20.0); the sqlite engine uses node:sqlite');
+  assert.equal(j.exit, 1);
+  assert.ok(!d.stderr.includes('ERR_UNKNOWN_BUILTIN_MODULE'), d.stderr);
+  // Not doctor-specific: the guard runs before argument parsing, so an unrelated command fails the same way.
+  assert.equal(run(['list'], old).status, 1);
+  assert.equal(J(run(['list'], old)).error, j.error);
+  assert.equal(run([], old).status, 1, 'no args still hits the guard first');
+});
+test('skill --print hands back the SKILL.md text without touching disk', () => {
+  assert.equal(run(['add', 'fixtures/petstore.json', '--name', 'print-me']).status, 0);
+  const before = readFileSync(join(skills, 'print-me', 'SKILL.md'), 'utf8');
+  const r = run(['skill', 'print-me', '--print']);
+  assert.equal(r.status, 0, r.stderr);
+  const j = J(r);
+  assert.equal(j.data.name, 'print-me');
+  assert.equal(j.data.text, before);
+  assert.equal(readFileSync(join(skills, 'print-me', 'SKILL.md'), 'utf8'), before, 'disk untouched by --print');
+  assert.equal(run(['skill', 'print-me', '--print', '--json', 'false']).stdout, j.data.text + '\n');
+  assert.equal(run(['remove', 'print-me']).status, 0);
+});
+test('skill --print needs a name', () => {
+  const r = run(['skill', '--print']);
+  assert.equal(r.status, 1);
+  assert.match(J(r).error, /usage: declick skill <name> --print/);
 });

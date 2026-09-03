@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { oneLine } from './describe.mjs';
 
 export const HOME = process.env.DECLICK_HOME || join(homedir(), '.declick');
 export const MANIFEST_VERSION = 1;
@@ -61,9 +62,39 @@ export function validateManifest(m) {
   return errs;
 }
 
+// Real specs write descriptions no one bounded: multi-sentence, backticked, longer than an agent should
+// read back. Collapse to one line, then prefer the first sentence; only a sentence that's still too long
+// gets a hard cut, backed off to the last space so no word is sliced in half.
+function normText(s, max) {
+  if (typeof s !== 'string') return s;
+  const flat = oneLine(s).replace(/^\s*#+\s*/, '');
+  const sentence = (flat.match(/^[^.!?]*[.!?]/)?.[0] ?? flat).trim();
+  if (sentence.length <= max) return sentence;
+  const cut = flat.slice(0, max);
+  const sp = cut.lastIndexOf(' ');
+  return (sp > 0 ? cut.slice(0, sp) : cut).trimEnd();
+}
+
+// Applied before validateManifest on every save, so a spec that writes long or messy text still compiles;
+// hand-edited manifests are still caught by the (unchanged) lint and validate limits.
+export function normalizeManifest(m) {
+  if (!m || typeof m !== 'object' || !Array.isArray(m.verbs)) return m;
+  const field = (o, max) => (o && typeof o === 'object' && 'description' in o ? { ...o, description: normText(o.description, max) } : o);
+  const verbs = m.verbs.map(v => (v && typeof v === 'object') ? {
+    ...v,
+    description: normText(v.description, 80),
+    args: Array.isArray(v.args) ? v.args.map(a => field(a, 200)) : v.args,
+    flags: Array.isArray(v.flags) ? v.flags.map(f => field(f, 200)) : v.flags,
+    returns: v.returns && typeof v.returns === 'object' && Array.isArray(v.returns.fields)
+      ? { ...v.returns, fields: v.returns.fields.map(f => field(f, 200)) } : v.returns,
+  } : v);
+  return { ...m, verbs };
+}
+
 export function manifestDir(name) { return join(HOME, assertName(name)); }
 
 export function saveManifest(m) {
+  m = normalizeManifest(m);
   const errs = validateManifest(m);
   if (errs.length) throw new Error(`invalid manifest: ${errs.join('; ')}`);
   const dir = manifestDir(m.name);

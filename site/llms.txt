@@ -29,7 +29,8 @@
 - Success: {"ok":true,"data":...,"meta":{"count":N,"truncated":false,"governance":{...}}}   (meta.dryRun: true on --dry-run)
 - Failure: {"ok":false,"error":"...","exit":N}   plus "data" when the engine has a payload
 - Flags: --flag value and --flag=value; boolean flags never eat the next argument; unknown flags are exit 1
-- Adapters live at ~/.declick/<n>/manifest.json; skills at ~/.claude/skills/<n>/SKILL.md; never edit either by hand
+- Adapters live at ~/.declick/<n>/manifest.json; skills at <n>/SKILL.md inside every agent skills directory that exists (~/.claude/skills, ~/.codex/skills, ~/.hermes/skills, ~/.openclaw/skills; DECLICK_SKILLS overrides, comma separated); never edit either by hand
+- Any agent: shell agents read describe or the SKILL.md; SDK agents (Anthropic SDK, OpenAI SDK, Managed Agents) expose one tool that runs `declick run <adapter> <verb> [args] --json` and returns stdout; `declick skill <n> --print` emits the SKILL.md text for an AGENTS.md or a system prompt. No DashClaw key means mutating verbs run ungated.
 
 ## Governance
 

@@ -17,28 +17,6 @@ const stripLineComment = (raw) => {
 const indentOf = (line) => { let k = 0; while (k < line.length && line[k] === ' ') k++; return k; };
 
 const ESC = { n: '\n', t: '\t', r: '\r', '"': '"', '\\': '\\', '0': '\0', b: '\b', f: '\f', '/': '/', ' ': ' ' };
-function parseDoubleAt(s, start) {
-  let p = start + 1, out = '';
-  while (p < s.length) {
-    const c = s[p];
-    if (c === '"') return { value: out, end: p + 1 };
-    if (c === '\\') {
-      const nx = s[p + 1];
-      if (nx === 'u') { out += String.fromCharCode(parseInt(s.slice(p + 2, p + 6), 16)); p += 6; continue; }
-      out += ESC[nx] !== undefined ? ESC[nx] : nx; p += 2; continue;
-    }
-    out += c; p++;
-  }
-  throw new Error('unterminated double-quoted string');
-}
-function parseSingleAt(s, start) {
-  let p = start + 1, out = '';
-  while (p < s.length) {
-    if (s[p] === "'") { if (s[p + 1] === "'") { out += "'"; p += 2; continue; } return { value: out, end: p + 1 }; }
-    out += s[p]; p++;
-  }
-  throw new Error('unterminated single-quoted string');
-}
 function foldLines(lines) {
   const parts = [];
   for (const l of lines) {
@@ -78,6 +56,46 @@ export function parseYaml(text) {
     }
     return -1;
   }
+  // Quoted scalars normally close on the same line `s` came from; `idx` (the rawLines index of
+  // `s`) is optional and, when given, lets the scan continue into rawLines[idx+1...] (raw, never
+  // comment-stripped: a `#` inside an open quote is literal) so a quote left open at end-of-line
+  // keeps scanning instead of throwing. Folding across lines follows the block-scalar rule: a
+  // blank line becomes a newline, anything else joins with a single space (foldLines).
+  function scanQuoted(s, start, idx, q) {
+    const decodeLine = (text, from) => {
+      let p = from, out = '';
+      while (p < text.length) {
+        const c = text[p];
+        if (c === q) {
+          if (q === "'" && text[p + 1] === "'") { out += "'"; p += 2; continue; }
+          return { decoded: out, closedAt: p + 1 };
+        }
+        if (q === '"' && c === '\\') {
+          const nx = text[p + 1];
+          if (nx === 'u') { out += String.fromCharCode(parseInt(text.slice(p + 2, p + 6), 16)); p += 6; continue; }
+          out += ESC[nx] !== undefined ? ESC[nx] : nx; p += 2; continue;
+        }
+        out += c; p++;
+      }
+      return { decoded: out, closedAt: null };
+    };
+    const kind = q === '"' ? 'double' : 'single';
+    const first = decodeLine(s, start + 1);
+    if (first.closedAt !== null) return { value: first.decoded, end: first.closedAt, endLine: idx };
+    if (idx === undefined || idx === null) throw new Error(`unterminated ${kind}-quoted string`);
+    const chunks = [first.decoded];
+    let li = idx;
+    while (true) {
+      li++;
+      if (li >= n) err(`unterminated ${kind}-quoted string`, idx);
+      const line = rawLines[li].replace(/^ +/, '').replace(/\s+$/, '');
+      const seg = decodeLine(line, 0);
+      chunks.push(seg.decoded);
+      if (seg.closedAt !== null) return { value: foldLines(chunks), end: seg.closedAt, endLine: li };
+    }
+  }
+  function parseDoubleAt(s, start, idx) { return scanQuoted(s, start, idx, '"'); }
+  function parseSingleAt(s, start, idx) { return scanQuoted(s, start, idx, "'"); }
   const contentAt = (idx) => { const s = stripLineComment(rawLines[idx]); const indent = indentOf(s); return { indent, text: s.slice(indent).replace(/\s+$/, '') }; };
   const guardTag = (text, idx) => {
     if (text === '?' || text.startsWith('? ')) err('complex mapping keys (?) are not supported', idx);
@@ -167,18 +185,45 @@ export function parseYaml(text) {
   function parseValueToken(s, idx, parentIndent) {
     if (s[0] === '&') {
       const m = /^&(\S+)\s*(.*)$/.exec(s); const [, name, remainder] = m;
-      const val = remainder === '' ? nestedOrNull(parentIndent) : parseValueToken(remainder, idx, parentIndent);
+      const val = remainder === '' ? parseValueAfter('', idx, parentIndent) : parseValueToken(remainder, idx, parentIndent);
       anchors[name] = val; return val;
     }
     if (s[0] === '*') { const name = s.slice(1).trim(); if (!(name in anchors)) err(`unknown alias *${name}`, idx); return anchors[name]; }
     if (s[0] === '|' || s[0] === '>') return parseBlockScalar(s, idx, parentIndent);
     if (s[0] === '{' || s[0] === '[') return parseFlow(s, idx);
-    if (s[0] === '"' || s[0] === "'") return (s[0] === '"' ? parseDoubleAt : parseSingleAt)(s, 0).value;
+    if (s[0] === '"' || s[0] === "'") {
+      const r = (s[0] === '"' ? parseDoubleAt : parseSingleAt)(s, 0, idx);
+      pos.i = r.endLine + 1;
+      return r.value;
+    }
     if (s[0] === '!') err('YAML tags are not supported', idx);
-    return resolvePlain(s);
+    // a plain (unquoted) scalar can fold onto following lines indented deeper than its own
+    // key/item (same rule as `>` block scalars); a key with inline content can't also start a
+    // nested block, so any such line here is continuation, not a sibling entry.
+    const cont = [];
+    while (pos.i < n) {
+      const line = rawLines[pos.i];
+      if (line.trim() === '') { cont.push(''); pos.i++; continue; }
+      const t = stripLineComment(line).trim();
+      if (t === '---' || t === '...') break;
+      if (indentOf(line) <= parentIndent) break;
+      cont.push(t); pos.i++;
+    }
+    while (cont.length && cont[cont.length - 1] === '') cont.pop();
+    return cont.length ? foldLines([s, ...cont]) : resolvePlain(s);
   }
   const nestedOrNull = (minIndent) => { const v = parseNode(minIndent + 1); return v === undefined ? null : v; };
-  function parseValueAfter(rest, idx, keyIndent) { return rest === '' ? nestedOrNull(keyIndent) : parseValueToken(rest, idx, keyIndent); }
+  function parseValueAfter(rest, idx, keyIndent) {
+    if (rest !== '') return parseValueToken(rest, idx, keyIndent);
+    // a block sequence may sit at the SAME indent as the mapping key it belongs to
+    // (PyYAML/Kubernetes default style); check for that before falling back to nested-deeper lookup.
+    const nidx = peek();
+    if (nidx !== -1) {
+      const c = contentAt(nidx);
+      if (c.indent === keyIndent && (c.text === '-' || c.text.startsWith('- '))) return parseSeq(keyIndent);
+    }
+    return nestedOrNull(keyIndent);
+  }
 
   function parseSeq(indent) {
     const arr = [];
@@ -191,7 +236,7 @@ export function parseYaml(text) {
       if (rest === '') { arr.push(nestedOrNull(indent)); continue; }
       guardTag(rest, idx);
       const kv = splitKeyValue(rest, idx);
-      arr.push(kv ? parseMapBody(indent + 2, { key: kv.key, rest: kv.rest, idx }) : parseValueToken(rest, idx, indent + 2));
+      arr.push(kv ? parseMapBody(indent + 2, { key: kv.key, rest: kv.rest, idx }) : parseValueToken(rest, idx, indent));
     }
     return arr;
   }

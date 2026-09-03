@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join, dirname, delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +8,15 @@ const RUN = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'run.mjs'
 const WIN = process.platform === 'win32';
 export const binDir = () => join(HOME, 'bin');
 const norm = p => (WIN ? resolve(p).toLowerCase() : resolve(p)).replace(/[\\/]+$/, '');
+// Written into every launcher this file generates, so a launcher from a different DECLICK_HOME (a
+// second install, or a temp dir a test suite points at) is still recognizable as declick's own, not
+// a foreign binary collision -- checked either by content (below) or by living under a ".declick/bin"
+// directory, the default HOME layout.
+const MARKER = 'declick launcher';
+const isDeclickLauncher = p => {
+  if (/[\\/]\.declick[\\/]bin$/i.test(norm(dirname(p)))) return true;
+  try { return readFileSync(p, 'utf8').includes(MARKER); } catch { return false; }
+};
 
 export function onPath() {
   const want = norm(binDir());
@@ -23,7 +32,7 @@ export function pathHint() {
 export function shadows(name) {
   const r = spawnSync(WIN ? 'where' : 'which', [name], { encoding: 'utf8', windowsHide: true });
   if (r.status !== 0) return null;
-  const hits = r.stdout.split(/\r?\n/).filter(Boolean).filter(p => !norm(dirname(p)).startsWith(norm(binDir())));
+  const hits = r.stdout.split(/\r?\n/).filter(Boolean).filter(p => !norm(dirname(p)).startsWith(norm(binDir())) && !isDeclickLauncher(p));
   return hits[0] || null;
 }
 
@@ -38,15 +47,18 @@ export function writeLauncher(name, { force = false } = {}) {
   canWriteLauncher(name, { force });
   const bin = binDir();
   mkdirSync(bin, { recursive: true });
-  const cmd = join(bin, `${name}.cmd`);
-  // %* forwards argv byte-for-byte -- except cmd.exe expands any %VAR% that matches a real environment
-  // variable while it parses ITS OWN command line, before this batch file (or any command, batch or
-  // not) even starts running; no shim content can intercept that (`cmd /c echo a%PATH%b` mangles it
-  // identically with zero .cmd file involved). An argument like "a%PATH%b" reaches node as "a<PATH
-  // value>b"; a % that doesn't pair up with a defined variable (a literal "%", "50%off", "%1", "%*")
-  // passes through untouched. The bash shim below never goes through cmd.exe and has no such limitation.
-  writeFileSync(cmd, `@echo off\r\nnode "${RUN}" ${name} %*\r\n`);
-  writeFileSync(join(bin, name), `#!/usr/bin/env bash\nexec node "${RUN.replace(/\\/g, '/')}" ${name} "$@"\n`, { mode: 0o755 });
+  let cmd;
+  if (WIN) {
+    cmd = join(bin, `${name}.cmd`);
+    // %* forwards argv byte-for-byte -- except cmd.exe expands any %VAR% that matches a real environment
+    // variable while it parses ITS OWN command line, before this batch file (or any command, batch or
+    // not) even starts running; no shim content can intercept that (`cmd /c echo a%PATH%b` mangles it
+    // identically with zero .cmd file involved). An argument like "a%PATH%b" reaches node as "a<PATH
+    // value>b"; a % that doesn't pair up with a defined variable (a literal "%", "50%off", "%1", "%*")
+    // passes through untouched. The bash shim below never goes through cmd.exe and has no such limitation.
+    writeFileSync(cmd, `@echo off\r\nrem ${MARKER}\r\nnode "${RUN}" ${name} %*\r\n`);
+  }
+  writeFileSync(join(bin, name), `#!/usr/bin/env bash\n# ${MARKER}\nexec node "${RUN.replace(/\\/g, '/')}" ${name} "$@"\n`, { mode: 0o755 });
   if (!onPath()) process.stderr.write(`add to PATH once: ${pathHint()}   (or use: declick run ${name} <verb>)\n`);
   return cmd;
 }

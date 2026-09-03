@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, statSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,10 +11,19 @@ const yamlStr = s => JSON.stringify(oneLine(s));
 const fence = s => String(s).replace(/```/g, "'''");
 const token = a => a.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
 
+const isDir = p => { try { return statSync(p).isDirectory(); } catch { return false; } };
+
+// DECLICK_SKILLS, when set, is a comma-separated override: exactly those dirs, nothing appended.
+// Otherwise every agent with a skills dir on this machine gets the skill; none get created for an agent not installed.
 export function skillDirs() {
-  const dirs = [process.env.DECLICK_SKILLS || join(homedir(), '.claude', 'skills')];
+  if (process.env.DECLICK_SKILLS) return [...new Set(process.env.DECLICK_SKILLS.split(',').map(s => s.trim()).filter(Boolean))];
+  const dirs = [join(homedir(), '.claude', 'skills')];
+  for (const agent of ['codex', 'hermes', 'openclaw', 'agents']) {
+    const d = join(homedir(), `.${agent}`, 'skills');
+    if (isDir(d)) dirs.push(d);
+  }
   if (process.env.OPENCLAW_SKILLS) dirs.push(process.env.OPENCLAW_SKILLS);
-  return dirs;
+  return [...new Set(dirs)];
 }
 
 const marked = p => !existsSync(p) || readFileSync(p, 'utf8').includes(MARKER);
@@ -36,7 +45,7 @@ function write(name, body, dirs) {
 
 // What the first failure of this engine looks like and what it names, so nobody reaches for a screenshot.
 function tail(m) {
-  const auth = m.auth?.env?.length ? `, 4 auth needed (then: declick auth ${m.name}, or creds mint ${m.name})` : '';
+  const auth = m.auth?.env?.length ? `, 4 auth needed (then: declick auth ${m.name})` : '';
   if (m.engine === 'desktop') return `Exit 2 means an element path or the window stopped resolving (then: declick repair ${m.name} <verb>). Exit 3 means deskclaw is not armed or STOP is set (then: declick desk arm 30). The "${oneLine(m.window, 500)}" window must be open on this desktop before any verb runs; verbs without --dry-run act on it.`;
   if (m.engine === 'web') return `Exit 2 means a selector stopped matching: the error carries data.candidates, the real elements on the page, so fix the recipe from that and never from a screenshot. Exit 1 with no browser means Chrome or Edge is missing (then: set CHROME=<path>). Verbs without --dry-run drive a real browser on ${oneLine(m.window, 500)}.`;
   if (m.engine === 'mcp') return `Exit 2 means the verb is not in the server tools list, 3 blocked by governance${auth}. Every verb starts ${oneLine(m.source, 200)}, calls one tool and exits, so the server does not have to be running first.`;
@@ -45,14 +54,21 @@ function tail(m) {
   return `Exit 2 means not found, 3 blocked by governance${auth}.`;
 }
 
+// A verb description is a full sentence ("Update an existing pet."); fold it into "Use when you need to ...".
+const lead = s => {
+  const d = String(s).trim().replace(/\.$/, '');
+  return /^[A-Z]{2,}$/.test(d.split(' ')[0]) ? d : d.charAt(0).toLowerCase() + d.slice(1);
+};
+
 // A required flag with no value is the most common first failure: spend the example the spec gave, or a token to replace.
 const required = v => (v.flags || []).filter(f => f.required).map(f => ` --${oneLine(f.name, 100)} ${f.example === undefined ? token(f) : oneLine(String(f.example), 60)}`).join('');
 
-export function writeSkill(m, opts) {
+// The exact SKILL.md text for a manifest, so a caller can print it without writing it (declick skill <name> --print).
+export function skillText(m) {
   const examples = m.verbs.slice(0, 3).map(v => `${m.name} ${v.name}${v.args.map(a => ` ${token(a)}`).join('')}${required(v)}${v.mutating ? ' --dry-run' : ''}`);
-  const body = `---
+  return `---
 name: ${m.name}
-description: ${yamlStr(`Use when you need to ${m.verbs[0].description.toLowerCase()} or other ${m.name} operations from the shell. Run '${m.name} describe' first.`)}
+description: ${yamlStr(`Use when you need to ${lead(m.verbs[0].description)} or other ${m.name} operations from the shell. Run '${m.name} describe' first.`)}
 ---
 
 # ${m.name}
@@ -73,8 +89,11 @@ If '${m.name}' is not on PATH, run every command as: declick run ${m.name} <verb
 Every verb: --json (default when piped) --fields a,b --limit N; mutating verbs accept --dry-run. Success: {"ok":true,"data":...,"meta":{"count":N,"truncated":false}}. Failure: {"ok":false,"error":"...","exit":N}.
 ${tail(m)}
 `;
+}
+
+export function writeSkill(m, opts) {
   canWriteSkill(m.name, opts);
-  return write(m.name, body, skillDirs());
+  return write(m.name, skillText(m), skillDirs());
 }
 
 // declick's own skill is rendered from the command table, so it can never drift from what the CLI accepts.

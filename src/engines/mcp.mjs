@@ -1,4 +1,4 @@
-import { loadEnv, vaultPath } from '../creds.mjs';
+import { loadEnv, vaultPath, mintHint } from '../creds.mjs';
 import { EXIT, RESERVED, camel } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 import { assertName } from '../manifest.mjs';
@@ -78,7 +78,7 @@ export async function compile(source, { name, verbs: only, timeout } = {}) {
     await client.connect();
     tools = await client.listTools();
   } catch (e) {
-    if (e.exit === EXIT.AUTH && !bearer) throw fail(`${cfg.url} wants a bearer token; set ${key} in the environment or ${vaultPath()} (or run: creds mint ${adapter})`, EXIT.AUTH);
+    if (e.exit === EXIT.AUTH && !bearer) throw fail(`${cfg.url} wants a bearer token; set ${key} in the environment or ${vaultPath()}${mintHint(adapter)}`, EXIT.AUTH);
     throw e;
   } finally { client.close(); }
   if (!tools.length) throw fail(`${source} lists no tools; check the server command or its arguments`);
@@ -175,7 +175,7 @@ function tokenFor(m, dry) {
   const need = m.auth?.env || [];
   if (!need.length || dry) return undefined;
   const { found, missing } = loadEnv(need);
-  if (missing.length) throw fail(`set ${missing.join(', ')} in the environment or ${vaultPath()} (or run: creds mint ${m.name})`, EXIT.AUTH);
+  if (missing.length) throw fail(`set ${missing.join(', ')} in the environment or ${vaultPath()}${mintHint(m.name)}`, EXIT.AUTH);
   return found[need[0]];
 }
 

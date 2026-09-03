@@ -4,9 +4,19 @@ import { join } from 'node:path';
 import { HOME, loadManifest, manifestDir } from '../src/manifest.mjs';
 import { describe, describeJson } from '../src/describe.mjs';
 import { emit, parseFlags, camel, nearest, RESERVED, EXIT } from '../src/output.mjs';
-import { engines } from '../src/engines/index.mjs';
 import { guard, derivedMutating, redactArgs } from '../src/guard.mjs';
 import { scopeCreds, credUsage } from '../src/creds.mjs';
+
+// Same gate as bin/declick.mjs: the launcher execs this file directly, and src/engines/index.mjs pulls in
+// node:sqlite at import time, so the Node check has to run before the engines load or Node 18 users get a stack trace.
+const nodeVersion = process.env.DECLICK_NODE_VERSION || process.versions.node;
+if (Number(nodeVersion.split('.')[0]) < 24) {
+  const msg = `declick needs Node 24 or newer (found v${nodeVersion}); the sqlite engine uses node:sqlite`;
+  if (!process.stdout.isTTY) process.stdout.write(JSON.stringify({ ok: false, error: msg, exit: EXIT.ERROR }) + '\n');
+  else process.stderr.write(`error: ${msg}\n`);
+  process.exit(EXIT.ERROR);
+}
+const { engines } = await import('../src/engines/index.mjs');
 
 const started = Date.now();
 const CONTRACT = ['json', 'fields', 'limit', 'rows', 'dryRun', 'full', 'help',
@@ -83,8 +93,10 @@ try {
 const creds = credUsage();
 result.meta = { ...(result.meta || {}), governance, ...(creds.length ? { credentials: creds } : {}) };
 const json = flags.json ?? !process.stdout.isTTY;
-// A verb whose spec says where its rows live unwraps them by default; --rows overrides, and describe keeps its own shape.
-const out = emit(result, { json, fields: flags.fields, limit: flags.limit, rows: ran ? flags.rows ?? v.returns?.rowsPath : undefined, auto: ran, dryRun: !!flags.dryRun && result.ok });
+// A verb whose spec says where its rows live unwraps them by default, but only once the caller asks to filter
+// (--fields or --limit): otherwise the resource itself is the answer, not a guess at which array is "the rows".
+const wantsRows = flags.fields !== undefined || flags.limit !== undefined;
+const out = emit(result, { json, fields: flags.fields, limit: flags.limit, rows: ran ? flags.rows ?? (wantsRows ? v.returns?.rowsPath : undefined) : undefined, auto: ran, dryRun: !!flags.dryRun && result.ok });
 if (text && !json) out.text = text;
 if (m && verb && verb !== 'describe') {
   try {

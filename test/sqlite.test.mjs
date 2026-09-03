@@ -124,6 +124,11 @@ test('query verb runs parameterized SELECT and rejects anything else', async () 
   assert.equal(rejected.ok, false); assert.equal(rejected.exit, 1);
   assert.match(rejected.error, /SELECT|WITH/);
 
+  const missingFlag = await execute(m, 'query', ['SELECT 1'], {});
+  assert.equal(missingFlag.ok, false); assert.equal(missingFlag.exit, 1);
+  assert.match(missingFlag.error, /needs --sql/);
+  assert.doesNotMatch(missingFlag.error, /must start with/);
+
   rmSync(path, { force: true });
 });
 

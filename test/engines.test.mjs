@@ -119,6 +119,47 @@ test('a url is read once and routed by what it serves', async () => {
   } finally { server.close(); }
 });
 
+test('a large spec whose openapi key sits past the 64KB head is still routed to openapi', async () => {
+  // Alphabetized like a real vendor dump: components/info first, openapi/paths pushed past the head window.
+  const big = JSON.stringify({ components: { schemas: { pad: 'x'.repeat(70000) } }, openapi: '3.0.0', info: { title: 'big', version: '1' }, paths: {} });
+  const server = createServer((req, res) => {
+    if (req.url.startsWith('/spec')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(big); return; }
+    res.writeHead(404, { 'content-type': 'text/html' }); res.end('<html>not found</html>');
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    // components is the very first key, well inside the head window: the CONTENT sniff alone should catch this,
+    // no url extension needed.
+    assert.equal(await probe(`${base}/spec`), 'openapi');
+  } finally { server.close(); }
+});
+
+test('a spec-shaped 100KB body whose first key is not whitelisted still routes on url shape', async () => {
+  // Neither the CONTENT sniff nor its components/paths/definitions/info extension can see this: the first key
+  // is "servers", and "openapi" itself sits past 70KB of padding, outside the 64KB head window.
+  const big = JSON.stringify({ servers: [{ url: 'https://api.example.com', description: 'x'.repeat(70000) }], openapi: '3.0.0', info: { title: 'big', version: '1' }, paths: {} });
+  const server = createServer((req, res) => {
+    if (req.url.startsWith('/big.json')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(big); return; }
+    if (req.url.startsWith('/missing.json')) { res.writeHead(404, { 'content-type': 'text/html' }); res.end('<html>not found</html>'); return; }
+    if (req.url.startsWith('/redirected.json')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html>login</html>'); return; }
+    res.writeHead(404); res.end();
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.equal(await probe(`${base}/big.json`), 'openapi');
+    await assert.rejects(probe(`${base}/missing.json`), new RegExp(`GET ${base}/missing\\.json -> 404$`));
+    await assert.rejects(probe(`${base}/redirected.json`), /not a spec: got text\/html$/);
+    // Through the real CLI: the error has to survive the spawnSync child probeUrl runs in, not just probe() itself.
+    const cli = await runAsync(['engines', '--source', `${base}/missing.json`]);
+    assert.equal(cli.status, 0, cli.stderr);
+    const d = J(cli).data;
+    assert.equal(d.engine, null);
+    assert.match(d.why, /GET .*\/missing\.json -> 404/);
+  } finally { server.close(); }
+});
+
 test('a url that cannot be read falls back to its shape instead of failing', () => {
   assert.equal(pickEngine('http://127.0.0.1:1/openapi.json'), 'openapi');
   assert.equal(pickEngine('http://127.0.0.1:1/graphql'), 'graphql');

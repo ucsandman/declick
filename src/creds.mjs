@@ -1,8 +1,17 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 
 export function vaultPath() { return process.env.CREDS_VAULT || join(homedir(), '.creds', 'vault.env'); }
+
+// `creds` is the author's own vault CLI, not something a stranger running this package has installed.
+// Only append the hint when a creds executable actually resolves on this machine's PATH.
+const CREDS_NAMES = process.platform === 'win32' ? ['creds.cmd', 'creds.exe', 'creds'] : ['creds'];
+export function mintHint(name) {
+  const dirs = (process.env.PATH || '').split(delimiter).filter(Boolean);
+  const onPath = dirs.some(d => CREDS_NAMES.some(n => { try { return existsSync(join(d, n)); } catch { return false; } }));
+  return onPath ? ` (or run: creds mint ${name})` : '';
+}
 
 function readVault() {
   const p = vaultPath();

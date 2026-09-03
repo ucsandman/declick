@@ -20,7 +20,7 @@ export const engines = { openapi, desktop, mcp, web, graphql, postman, har, sqli
 // tool that is not here. Every source string below is runnable as written.
 export const ENGINE_INFO = [
   { name: 'openapi', ready: true, source: 'spec.json | spec.yaml | https://.../openapi.json', note: 'openapi 3 and swagger 2, json or yaml; a url spec is fetched once at compile time' },
-  { name: 'desktop', ready: process.platform === 'win32', source: 'app:<window title>', note: 'needs deskclaw; declick doctor checks it' },
+  { name: 'desktop', ready: process.platform === 'win32', source: 'app:<window title>', note: process.platform === 'win32' ? 'needs deskclaw; declick doctor checks it' : 'Windows only (deskclaw UI Automation); not available on this platform' },
   { name: 'mcp', ready: true, source: 'mcp:<command args> | mcp:https://host/mcp', note: 'stdio servers spawn the command; http servers take a bearer from <NAME>_TOKEN' },
   { name: 'web', ready: !!findChrome(), source: 'web:https://<site> --recipes <dir>', note: 'needs Chrome or Edge; one recipe json per verb, and errors carry candidates instead of screenshots' },
   { name: 'graphql', ready: true, source: 'graphql:https://.../graphql | schema.json | schema.graphql', note: 'introspects the endpoint; bearer from <NAME>_TOKEN when it answers 401' },
@@ -41,6 +41,9 @@ const CONTENT = [
   [/schema\.getpostman\.com|"_postman_id"|"_type"\s*:\s*"(export|request|workspace)"/, 'postman'],
   [/"log"\s*:\s*\{[\s\S]{0,400}"entries"\s*:/, 'har'],
   [/"__schema"\s*:/, 'graphql'],
+  // A big spec (Stripe, Twilio, Slack) can serialize components/paths/definitions before its own openapi/swagger
+  // key ever shows inside the head window; its first key still says what it is.
+  [/^\s*\{\s*"(components|paths|definitions|info)"\s*:/, 'openapi'],
 ];
 const sniff = text => CONTENT.find(([re]) => re.test(text))?.[1] || null;
 
@@ -60,16 +63,25 @@ const get = (url, init) => fetch(url, { redirect: 'follow', signal: AbortSignal.
 // One ranged GET of the first 64KB, then the smallest legal graphql query there is: every graphql server
 // answers {__typename} and nothing else does, so no site is misrouted and no probe changes anything.
 export async function probe(url) {
-  let text = '';
+  let text = '', r;
   try {
-    const r = await get(url, { headers: { range: 'bytes=0-65535', accept: 'application/json, application/yaml, text/plain, */*' } });
+    r = await get(url, { headers: { range: 'bytes=0-65535', accept: 'application/json, application/yaml, text/plain, */*' } });
     text = (await r.text()).slice(0, 65536);
   } catch { return shapeOf(url); }
   const byContent = sniff(text);
   if (byContent) return byContent;
+  // The head window missed every marker, but the url itself already says spec (.json, .yaml, openapi, swagger,
+  // api-docs) and is not graphql: trust that shape over a guess from a truncated body, and let the openapi
+  // engine's own loader give the real error if the shape turns out wrong. A non-2xx or an html body under a
+  // spec-shaped url is never a spec either, so that fails add outright instead of falling through to web.
+  if (shapeOf(url) === 'openapi') {
+    if (!r.ok) throw fail(`GET ${url} -> ${r.status}`);
+    if (/text\/html/i.test(r.headers.get('content-type') || '')) throw fail('not a spec: got text/html');
+    return 'openapi';
+  }
   try {
-    const r = await get(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"query":"{__typename}"}' });
-    const j = await r.json();
+    const r2 = await get(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"query":"{__typename}"}' });
+    const j = await r2.json();
     if (typeof j?.data?.__typename === 'string') return 'graphql';
   } catch { /* not a graphql endpoint */ }
   const doc = docOf(text);
@@ -87,6 +99,7 @@ const SELF = fileURLToPath(import.meta.url);
 function probeUrl(url) {
   const r = spawnSync(process.execPath, [SELF, '--probe', url], { encoding: 'utf8', timeout: 20000 });
   const out = String(r.stdout || '').trim();
+  if (out.startsWith('ERROR:')) throw fail(out.slice(6));
   return engines[out] ? out : shapeOf(url);
 }
 
@@ -103,4 +116,6 @@ export function pickEngine(source, override) {
   throw fail(`cannot tell what ${source} is; source: ${FORMS}, or force one with --engine ${Object.keys(engines).join('|')}`);
 }
 
-if (process.argv[2] === '--probe' && resolve(process.argv[1] || '') === SELF) probe(process.argv[3] || '').then(e => process.stdout.write(e));
+if (process.argv[2] === '--probe' && resolve(process.argv[1] || '') === SELF) {
+  probe(process.argv[3] || '').then(e => process.stdout.write(e), err => { process.stdout.write(`ERROR:${err.message}`); process.exitCode = 1; });
+}

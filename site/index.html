@@ -100,6 +100,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 <a href="#compared">MCP and screenshot loops</a>
 <a href="#desktop">Windows apps</a>
 <a href="#governance">governance</a>
+<a href="#agents">any agent</a>
 <a href="#commands">commands</a>
 <a href="#requirements">requirements</a>
 <a href="#license">license</a>
@@ -130,7 +131,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 <tr><td><span class="chip">exit 0</span></td><td>ok</td></tr>
 <tr><td><span class="chip chip--hot">exit 1</span></td><td>error (bad flag, bad field, bad request)</td></tr>
 <tr><td><span class="chip chip--hot">exit 2</span></td><td>not found (adapter, verb, window or element)</td></tr>
-<tr><td><span class="chip chip--hot">exit 3</span></td><td>blocked (governance, desktop not armed, or a STOP file)</td></tr>
+<tr><td><span class="chip chip--hot">exit 3</span></td><td>blocked (a DashClaw guard you chose to set up said no, desktop not armed, or a STOP file; never without a guard key)</td></tr>
 <tr><td><span class="chip chip--hot">exit 4</span></td><td>auth needed (<code>declick auth &lt;name&gt;</code> says which key)</td></tr>
 </tbody>
 </table>
@@ -429,7 +430,7 @@ common: --json --fields --limit --dry-run --help   exit: 0 ok 1 err 2 missing 3 
 </div>
 </div>
 <h3 class="head-gap">Tier two, opt in</h3>
-<p class="prose head-gap">With no <code>DASHCLAW_API_KEY</code> set, a mutating call prints one warning line and proceeds, and the envelope records <code>governance.enabled</code> false. Set the key and <code>DASHCLAW_URL</code> and every real mutating call posts <code>{tool, action, risk_score, method, target, args}</code> to your guard first, secret-shaped args replaced by <code>&lt;redacted&gt;</code> and everything else truncated at 64 characters, with a 3 second timeout. From then on strict is the default: a guard that is unreachable, times out, or answers anything but a decision is exit 3. <code>DECLICK_GUARD=open</code> restores warn-and-proceed on a guard failure; a block or <code>require_approval</code> the guard actually returns is refused either way. Every invocation appends one line to <code>~/.declick/audit.jsonl</code>, <code>declick audit</code> reads it newest first, and <code>DECLICK_AUDIT=off</code> turns the log off. That switch is worth knowing about if you are the one who has to prove it was on.</p>
+<p class="prose head-gap">The guard is <a href="https://github.com/ucsandman/DashClaw">DashClaw</a>, the approval and policy layer for unattended agents from the same author: it intercepts a risky action before it runs and blocks it, or asks a person to approve it from anywhere. With no <code>DASHCLAW_API_KEY</code> set, a mutating call prints one warning line and proceeds, and the envelope records <code>governance.enabled</code> false. Set the key and <code>DASHCLAW_URL</code> and every real mutating call posts <code>{tool, action, risk_score, method, target, args}</code> to your guard first, secret-shaped args replaced by <code>&lt;redacted&gt;</code> and everything else truncated at 64 characters, with a 3 second timeout. From then on strict is the default: a guard that is unreachable, times out, or answers anything but a decision is exit 3. <code>DECLICK_GUARD=open</code> restores warn-and-proceed on a guard failure; a block or <code>require_approval</code> the guard actually returns is refused either way. Every invocation appends one line to <code>~/.declick/audit.jsonl</code>, <code>declick audit</code> reads it newest first, and <code>DECLICK_AUDIT=off</code> turns the log off. That switch is worth knowing about if you are the one who has to prove it was on.</p>
 <div class="split head-gap">
 <div class="stack-32">
 <figure class="block">
@@ -468,6 +469,31 @@ common: --json --fields --limit --dry-run --help   exit: 0 ok 1 err 2 missing 3 
 <figcaption><span class="cap">The log, newest first.</span><span class="chip">exit 0</span></figcaption>
 </figure>
 <p><a href="/controls">Read the control matrix</a></p>
+</section>
+
+<section class="sec" id="agents">
+<h2 class="head-gap">Any agent with a shell, not only Claude Code</h2>
+<div class="pane head-gap">
+<div>
+<p class="prose">declick is a command line tool, so the integration is the shell. <code>declick add</code> writes the adapter's <code>SKILL.md</code> into every agent skills directory that exists on the machine: <code>~/.claude/skills</code> for Claude Code, <code>~/.codex/skills</code> for Codex, <code>~/.hermes/skills</code> for Hermes, <code>~/.openclaw/skills</code> for OpenClaw. It never creates a directory for an agent you do not have, and <code>DECLICK_SKILLS</code> names any other list, comma separated. An agent without a skills directory reads <code>declick describe &lt;name&gt;</code>, or you paste <code>declick skill &lt;name&gt; --print</code> into its AGENTS.md or system prompt.</p>
+<p class="prose">A custom agent on the Anthropic SDK, the OpenAI SDK, or Anthropic Managed Agents needs one tool: run <code>declick run &lt;adapter&gt; &lt;verb&gt; [args] --json</code> and hand back stdout. The envelope is the tool result, the exit code is the status, and <code>describe --json</code> is the source for the tool's input schema. Nothing in that loop is specific to a model or a vendor. Governance is optional in the same way: with no DashClaw key set, mutating verbs run and nothing blocks.</p>
+</div>
+<div>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="A tool function for any SDK agent, in Node"><code><span class="out">import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+const bin = fileURLToPath(import.meta.resolve('declick/bin/declick.mjs'));
+
+// The one tool an SDK agent needs. The envelope is the result, on success and on failure.
+export async function declick(adapter, verb, args = []) {
+  const r = await promisify(execFile)(process.execPath, [bin, 'run', adapter, verb, ...args, '--json']).catch(e =&gt; e);
+  return JSON.parse(r.stdout);
+}</span></code></pre>
+<figcaption><span class="cap">Source, not output: <code>npm i declick</code> in the agent's project, then this function. Run on Node 24 it returned the row for <code>get-user-by-name user1</code> and the exit 2 envelope for a bad verb, with no shell involved on any OS.</span></figcaption>
+</figure>
+</div>
+</div>
 </section>
 
 <section class="sec" id="commands">
@@ -588,7 +614,7 @@ common: --json --fields --limit --dry-run --help   exit: 0 ok 1 err 2 missing 3 
 <h2 class="head-gap">Three commands to a working adapter</h2>
 <div class="pane head-gap">
 <div>
-<p class="prose">Install it, point it at a spec, describe what came out. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> under <code>~/.claude/skills</code> so Claude Code finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.3.0 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
+<p class="prose">Install it, point it at a spec, describe what came out. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.3.0 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
 </div>
 <div>
 <figure class="block">

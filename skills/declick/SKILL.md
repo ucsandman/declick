@@ -28,7 +28,7 @@ declick path [--install]                                              where decl
 declick proposals <name>                                              authoring proposals whose replay failed, waiting to be accepted
 declick recipes <name>                                                stored desktop recipes for an adapter
 declick recipe <name> <verb>                                          one stored recipe, step by step
-declick skill [name] [--force]                                        regenerate SKILL.md for one adapter or all of them
+declick skill [name] [--force] [--print]                              regenerate SKILL.md for one adapter or all of them
 declick remove <name> [verb] [--force]                                delete an adapter (manifest, launcher, skill) or one desktop verb
 declick export <name>                                                 the adapter and its recipes as one bundle on stdout
 declick import [file] [--force] [--example] [--engine e]              install an adapter from a bundle (file, or - for stdin)

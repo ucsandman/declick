@@ -54,7 +54,8 @@ export async function guard({ tool, action, engine, method, target, args }) {
   const key = process.env.DASHCLAW_API_KEY;
   const strict = isStrict();
   const warn = msg => process.stderr.write(`warning: ${msg}\n`);
-  if (!key) { warn('ungoverned mutating call (set DASHCLAW_API_KEY to gate)'); return { allowed: true, decision: 'skipped', reason: 'no DASHCLAW_API_KEY' }; }
+  // No key means the owner chose not to run DashClaw: that's a config, not a fault, so it stays silent on stderr.
+  if (!key) return { allowed: true, decision: 'skipped', reason: 'no guard configured' };
   const fail = why => strict
     ? { allowed: false, decision: 'block', reason: `governance ${why} (strict; set DECLICK_GUARD=open to proceed ungoverned)` }
     : (warn(`governance ${why}; proceeding ungoverned`), { allowed: true, decision: 'failed-open', reason: why });

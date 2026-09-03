@@ -114,7 +114,9 @@ function buildStatement(v, positional, flags) {
   const { table, kind, pk, columns } = v.sqlite;
   const val = f => { const x = flags[f] ?? flags[camel(f)]; return x === true ? undefined : x; };
   if (kind === 'query') {
-    const sql = String(val('sql') ?? '').trim();
+    const rawSql = val('sql');
+    if (rawSql === undefined) throw fail("query needs --sql 'SELECT ...' (positional text is not accepted)");
+    const sql = String(rawSql).trim();
     if (!/^(select|with)\b/i.test(sql)) throw fail('query --sql must start with SELECT or WITH');
     const raw = flags.param;
     return { sql, params: raw === undefined ? [] : [].concat(raw), mode: 'rows' };

@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.DECLICK_HOME = mkdtempSync(join(tmpdir(), 'declick-'));
-const { validateManifest, saveManifest, loadManifest, listManifests, manifestDir, assertName } = await import('../src/manifest.mjs');
+const { validateManifest, normalizeManifest, saveManifest, loadManifest, listManifests, manifestDir, assertName } = await import('../src/manifest.mjs');
+const { lint } = await import('../src/lint.mjs');
 
 const good = { name: 'pet', engine: 'openapi', source: 'x.json', builtAt: '2026-09-02T00:00:00Z',
   auth: { env: [] }, verbs: [{ name: 'list-pets', description: 'List pets', args: [], flags: [], mutating: false }] };
@@ -64,4 +65,26 @@ test('untrusted manifest text must be one bounded line', () => {
   bad({ verbs: [{ ...good.verbs[0], returns: { shape: 'object', fields: [{ name: 'id\n# heading', type: 'string' }] } }] }, /returns\.fields\[0\]\.name must be one line/);
   bad({ verbs: [{ ...good.verbs[0], returns: { shape: 'object', rowsPath: 'items`x', fields: [] } }] }, /returns\.rowsPath must not contain backticks/);
   assert.deepEqual(validateManifest({ ...good, window: 'Calculator', baseUrl: 'https://x.test' }), []);
+});
+test('a real spec\'s long, multi-line, backticked description is normalized to its first sentence, then saves and lints clean', () => {
+  const firstSentence = 'Create a charge for a customer.';
+  const filler = ' Then it does `x`, `y`, and `z` across\nmultiple lines with plenty of extra detail that keeps repeating for length'.repeat(4);
+  const raw = `# ${firstSentence}${filler}`;
+  assert.ok(raw.length > 300, 'fixture must exceed 300 chars');
+  const m = { ...good, name: 'billing', baseUrl: 'https://example.com', verbs: [{ ...good.verbs[0], name: 'create-charge', description: raw }] };
+  const n = normalizeManifest(m);
+  assert.equal(n.verbs[0].description, firstSentence);
+  assert.deepEqual(validateManifest(n), []);
+  assert.deepEqual(lint(n), []);
+  assert.doesNotThrow(() => saveManifest(m));
+  assert.equal(loadManifest('billing').verbs[0].description, firstSentence);
+});
+test('a description whose first sentence runs past 80 chars is hard-cut on a word boundary, not mid-word', () => {
+  const raw = 'alpha '.repeat(19) + 'end.'; // first (only) sentence is 118 chars, well past 80
+  const expected = 'alpha '.repeat(12) + 'alpha'; // 77 chars: the word boundary before the 80-char mark
+  const n = normalizeManifest({ ...good, verbs: [{ ...good.verbs[0], description: raw }] });
+  assert.equal(n.verbs[0].description, expected);
+  assert.ok(n.verbs[0].description.length <= 80);
+  assert.ok(!n.verbs[0].description.endsWith(' '));
+  assert.deepEqual(validateManifest(n), []);
 });

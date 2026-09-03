@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
-import { loadEnv, vaultPath } from '../creds.mjs';
+import { loadEnv, vaultPath, mintHint } from '../creds.mjs';
 import { EXIT, RESERVED, camel } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 
@@ -106,7 +106,7 @@ async function loadSchema(src, apiName) {
   // A closed endpoint answers the first probe with 401/403; the bearer it wants is <NAME>_TOKEN.
   if (r.status === 401 || r.status === 403) {
     const { found, missing } = loadEnv([key]);
-    if (missing.length) throw fail(`${src} returned ${r.status}; set ${key} in the environment or ${vaultPath()} (or run: creds mint ${apiName})`, EXIT.AUTH);
+    if (missing.length) throw fail(`${src} returned ${r.status}; set ${key} in the environment or ${vaultPath()}${mintHint(apiName)}`, EXIT.AUTH);
     r = await post(src, INTROSPECTION, {}, found[key]);
     if (r.status === 401 || r.status === 403) throw fail(`${key} was rejected by ${src} (${r.status})`, EXIT.AUTH);
     env = [key];
@@ -265,7 +265,7 @@ export async function execute(m, verb, positional, flags = {}, { fetch: doFetch 
   const key = m.auth?.env?.[0];
   if (flags.dryRun) return { ok: true, data: { url: m.baseUrl || null, method: 'POST', document: op.document, variables: op.variables, ...(key ? { headers: { authorization: `Bearer <${key}>` } } : {}) } };
   const { found, missing } = loadEnv(m.auth?.env || []);
-  if (missing.length) return { ok: false, exit: EXIT.AUTH, error: `set ${missing.join(', ')} in the environment or ${vaultPath()} (or run: creds mint ${m.name})` };
+  if (missing.length) return { ok: false, exit: EXIT.AUTH, error: `set ${missing.join(', ')} in the environment or ${vaultPath()}${mintHint(m.name)}` };
   if (!m.baseUrl) return { ok: false, exit: EXIT.ERROR, error: `${m.name} was built from a schema file and has no endpoint; add it by URL: declick add graphql:<url> --name ${m.name}` };
   let r;
   try { r = await post(m.baseUrl, op.document, op.variables, key ? found[key] : undefined, doFetch); }
