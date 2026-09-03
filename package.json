@@ -1,6 +1,6 @@
 {
   "name": "declick",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Compile an API, an MCP server, or a database into a CLI your agent can run. Ten engines, one output contract.",
   "type": "module",
   "bin": {

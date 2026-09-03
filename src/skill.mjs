@@ -119,7 +119,7 @@ ${fence(rows.join('\n'))}
 
 \`declick <command> --help\` prints one row (flags, examples, whether it previews) and \`declick commands\` is this table as data, so nothing here has to be memorized.
 
-Flags every generated verb accepts: \`--json\`, \`--fields a,b\` (dotted paths ok), \`--limit N\`, \`--rows path\` (unwrap a nested array; auto-applied when the verb's \`returns.rowsPath\` is known and \`--fields\`/\`--limit\` is passed), \`--dry-run\` (mutating verbs), \`--help\`. Both \`--flag value\` and \`--flag=value\` work; boolean flags never eat the next argument. Unknown flags are an error, not ignored. Management commands that preview with \`--dry-run\`: ${previews.join(', ')}. \`describe --full\` shows each verb's flags, auth and compiled \`returns\`.
+Flags every generated verb accepts: \`--json\`, \`--fields a,b\` (dotted paths ok), \`--limit N\`, \`--rows path\` (unwrap a nested array; auto-applied when the verb's \`returns.rowsPath\` is known and \`--fields\`/\`--limit\` is passed), \`--where k=v\` (filter rows before \`--fields\`: \`k=v\`, \`k!=v\`, \`k~re\`, \`k>n\`, \`k=*\`), \`--max-bytes N\` (ceiling on \`data\`, default 8192, 0 off), \`--cache <seconds>\` (read-only verbs answer from the last response), \`--dry-run\` (mutating verbs), \`--help\`. Both \`--flag value\` and \`--flag=value\` work; boolean flags never eat the next argument. Unknown flags are an error, not ignored. Management commands that preview with \`--dry-run\`: ${previews.join(', ')}. \`describe --full\` shows each verb's flags, auth and compiled \`returns\`.
 `;
 }
 

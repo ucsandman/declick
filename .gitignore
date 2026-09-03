@@ -5,3 +5,4 @@ node_modules/
 .dashclaw-local/
 .offlocal/
 .launch/
+.claude/

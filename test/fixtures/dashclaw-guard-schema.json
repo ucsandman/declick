@@ -1,0 +1,38 @@
+{
+  "source": {
+    "file": "C:\\Projects\\DashClaw\\app\\lib\\validate.js",
+    "lines": "297-359",
+    "symbol": "GUARD_INPUT_SCHEMA",
+    "commit": "43a5a166",
+    "commitDate": "Fri Aug 21 13:01:07 2026 -0400",
+    "note": "Transcribed by hand on 2026-09-03 after a bearer-header/flat-body mismatch survived 566 mocked guard tests. Re-transcribe on any DashClaw validate.js change to app/lib/validate.js touching GUARD_INPUT_SCHEMA."
+  },
+  "aliases": {
+    "action": "action_type",
+    "intent": "declared_goal"
+  },
+  "fields": {
+    "action_type":     { "type": "string",  "required": true, "maxLength": 128 },
+    "action":          { "type": "string",  "alias": "action_type" },
+    "risk_score":      { "type": "integer", "min": 0, "max": 100 },
+    "agent_id":        { "type": "string",  "maxLength": 128 },
+    "agent_name":      { "type": "string",  "maxLength": 256 },
+    "systems_touched": { "type": "array",   "maxItems": 50 },
+    "reversible":      { "type": "boolean" },
+    "declared_goal":   { "type": "string",  "maxLength": 2000 },
+    "intent":          { "type": "string",  "alias": "declared_goal" },
+    "target":          { "type": "string",  "maxLength": 1024 },
+    "content":         { "type": "string",  "maxLength": 50000 },
+    "source_of_truth": { "type": "object" },
+    "intel":           { "type": "object" },
+    "tool":            { "type": "object" },
+    "write_paths":     { "type": "array",   "maxItems": 100 },
+    "trigger":         { "type": "string",  "maxLength": 1000 },
+    "swarm_id":        { "type": "string",  "maxLength": 128 },
+    "idempotency_key": { "type": "string",  "maxLength": 256 },
+    "approval_wait_seconds": { "type": "integer", "min": 5, "max": 86400 },
+    "act":             { "type": "object" },
+    "client_capabilities": { "type": "array" },
+    "metadata":        { "type": "object" }
+  }
+}

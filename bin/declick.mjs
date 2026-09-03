@@ -18,6 +18,7 @@ import { loadEnv, vaultPath, mintHint } from '../src/creds.mjs';
 import { guardUrl, isStrict, derivedMutating } from '../src/guard.mjs';
 import { loadPolicy, policyDecision, policyPath, EXAMPLE_POLICY } from '../src/policy.mjs';
 import { defaultsPath, loadDefaults, saveDefaults, knownFlags, parseEntry, defaultsLines } from '../src/defaults.mjs';
+import { cacheClear } from '../src/cache.mjs';
 import { runSetup, runRevert, runUninstall, integrationStatus, clientHomeOf } from '../src/setup.mjs';
 
 // ESM evaluates every static import before this module's own body runs, and src/engines/index.mjs statically
@@ -109,8 +110,9 @@ const COMMANDS = [
   C('ui', 'local page: every adapter, last run, add / build / repair / remove', [], [F('port', 'number', 'port to listen on (default 4870)', 'N'), F('open', 'boolean', 'open a browser at it'), F('allow-authoring', 'boolean', 'let the page repair a verb or add with a goal (runs Claude)')],
     { mutating: true, examples: ['declick ui --open'] }),
   C('audit', 'the run log: what ran, what governance decided, what failed', [],
-    [F('adapter', 'string', 'only this adapter', 'n'), F('since', 'string', 'only after an ISO time or a duration like 10m, 2h', 't'), F('failed', 'boolean', 'only runs that did not exit 0')],
-    { examples: ['declick audit --failed --limit 20', 'declick audit --adapter petstore --since 2h'] }),
+    [F('adapter', 'string', 'only this adapter', 'n'), F('since', 'string', 'only after an ISO time or a duration like 10m, 2h', 't'), F('failed', 'boolean', 'only runs that did not exit 0'),
+      F('sum', 'boolean', 'one total per adapter instead of the lines: calls, bytes, ms, failures')],
+    { examples: ['declick audit --failed --limit 20', 'declick audit --adapter petstore --since 2h', 'declick audit --sum --since 24h'] }),
   C('policy', 'local rules that allow, warn or block a verb before it runs, with no service', [P('verb', false)],
     [F('check', 'string', 'which rule wins for this adapter and the verb given', 'adapter'), F('example', 'boolean', 'print an example policy file instead', null, { bare: true })],
     { examples: ['declick policy', 'declick policy --check petstore delete-pet', 'declick policy --example'] }),
@@ -273,6 +275,26 @@ function auditRows({ adapter, since, failed }) {
     .map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse()
     .filter(r => (!adapter || r.adapter === adapter) && (!failed || r.ok === false) && (from === null || Date.parse(r.at) >= from));
 }
+
+// The same rows added up: what the adapters actually cost, biggest reader first, so the one to put a --fields or
+// a --cache on is the first line. A line written before bytes existed counts as 0 rather than dropping the run.
+function auditSum(rows) {
+  const by = new Map();
+  for (const r of rows) {
+    // A run that never named an adapter (a bad command line) still happened, so it gets a bucket of its own.
+    const key = r.adapter || '(none)';
+    const a = by.get(key) || { adapter: key, calls: 0, bytes: 0, ms: 0, failed: 0 };
+    a.calls++; a.bytes += Number(r.bytes) || 0; a.ms += Number(r.ms) || 0; if (r.ok === false) a.failed++;
+    by.set(key, a);
+  }
+  const adapters = [...by.values()].sort((a, b) => b.bytes - a.bytes || a.adapter.localeCompare(b.adapter));
+  return { calls: rows.length, ok: rows.filter(r => r.ok !== false).length, failed: rows.filter(r => r.ok === false).length,
+    blocked: rows.filter(r => r.exit === EXIT.BLOCKED).length,
+    bytes: adapters.reduce((s, a) => s + a.bytes, 0), ms: adapters.reduce((s, a) => s + a.ms, 0), adapters };
+}
+const kb = n => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+const sumText = s => [...s.adapters.map(a => `${a.adapter}\t${a.calls} calls\t${kb(a.bytes)}\t${a.ms}ms\t${a.failed} failed`),
+  `${s.calls} calls, ${kb(s.bytes)} read through adapters, ${s.failed} failed`].join('\n');
 
 async function doctor() {
   const node = process.versions.node;
@@ -501,7 +523,8 @@ try {
       const m = await build(old?.source || `app:${p.recipe.window || arg}`, { ...flags, name: arg });
       result = { ok: true, data: describeJson(m) }; text = describe(m); break;
     }
-    case 'build': { const old = loadManifest(arg); const m = await build(old.source, { ...flags, name: arg, engine: old.engine }, dry); result = { ok: true, data: describeJson(m) }; text = describe(m); break; }
+    // A rebuild recompiles the verbs a stored answer belongs to, so the cache goes with them; a preview keeps it.
+    case 'build': { const old = loadManifest(arg); const m = await build(old.source, { ...flags, name: arg, engine: old.engine }, dry); if (!dry) cacheClear(arg); result = { ok: true, data: describeJson(m) }; text = describe(m); break; }
     // Sugar over add: the same compile, with the name first because a chain is written for a name, not found at one.
     case 'compose': {
       if (flags.steps === undefined) {
@@ -559,6 +582,7 @@ try {
       if (flags.adapter === true) fail('--adapter needs an adapter name; run: declick list');
       if (flags.since === true) fail('--since needs an ISO time or a duration like 10m, 2h, 3d');
       const rows = auditRows({ adapter: flags.adapter, since: flags.since, failed: flags.failed === true || flags.failed === 'true' });
+      if (flags.sum) { const s = auditSum(rows); result = { ok: true, data: s }; text = rows.length ? sumText(s) : `no runs logged yet in ${join(HOME, 'audit.jsonl')}`; break; }
       result = { ok: true, data: rows };
       text = rows.length ? rows.map(r => `${r.at}\t${r.adapter} ${r.verb ?? ''}\t${r.ok ? 'ok' : `exit ${r.exit}`}\t${r.governance?.decision ?? '-'}\t${r.ms}ms`).join('\n') : `no runs logged yet in ${join(HOME, 'audit.jsonl')}`;
       break;

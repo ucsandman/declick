@@ -3,11 +3,12 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { join } from 'node:path';
 import { HOME, loadManifest, manifestDir } from '../src/manifest.mjs';
 import { describe, describeJson } from '../src/describe.mjs';
-import { emit, shape, parseFlags, camel, nearest, RESERVED, EXIT } from '../src/output.mjs';
+import { emit, shape, capData, jsonBytes, parseFlags, camel, nearest, CAP_HINT, RESERVED, EXIT } from '../src/output.mjs';
 import { guard, derivedMutating, redactArgs } from '../src/guard.mjs';
 import { policyDecision } from '../src/policy.mjs';
 import { scopeCreds, credUsage } from '../src/creds.mjs';
 import { defaultsPath, loadDefaults, knownFlags, parseEntry } from '../src/defaults.mjs';
+import { cacheKey, cacheRead, cacheWrite } from '../src/cache.mjs';
 
 // Same gate as bin/declick.mjs: the launcher execs this file directly, and src/engines/index.mjs pulls in
 // node:sqlite at import time, so the Node check has to run before the engines load or Node 18 users get a stack trace.
@@ -23,8 +24,8 @@ const { engines } = await import('../src/engines/index.mjs');
 process.stdout.on('error', e => { if (e.code === 'EPIPE') process.exit(0); throw e; });
 
 const started = Date.now();
-const CONTRACT = ['json', 'fields', 'limit', 'rows', 'dryRun', 'full', 'help',
-  'header', 'output', 'contentType', 'baseUrl', 'server', 'retry', 'timeout', 'verbose', 'curl', 'bodyFile', 'each', 'defaults'];
+const CONTRACT = ['json', 'fields', 'limit', 'rows', 'where', 'dryRun', 'full', 'help',
+  'header', 'output', 'contentType', 'baseUrl', 'server', 'retry', 'timeout', 'verbose', 'curl', 'bodyFile', 'each', 'defaults', 'maxBytes', 'cache'];
 const [name, ...rest] = process.argv.slice(2);
 const fail = (msg, exit = EXIT.ERROR) => Object.assign(new Error(msg), { exit });
 // parseFlags hands back camelCase keys; an error has to quote the token the agent actually typed.
@@ -56,6 +57,18 @@ const allowList = () => (process.env.DECLICK_ENV_ALLOW || '').split(/[,\s]+/).fi
 const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
 // Engines that send a request built from baseUrl: their keys belong to that origin and nowhere else.
 const SCOPED = ['openapi', 'graphql', 'postman', 'har'];
+// --cache <seconds> asks for the answer the wire already gave; --cache 0 and DECLICK_CACHE=off both mean go and ask.
+const ttlOf = f => (process.env.DECLICK_CACHE === 'off' ? 0 : Number(f.cache) || 0);
+// The verb's own flags, sorted so the order they were typed in cannot change the key. The contract flags only
+// change how an answer is printed, so two different shapings of one call read the same stored response.
+const ownFlags = f => Object.fromEntries(Object.entries(f).filter(([k]) => !CONTRACT.includes(k)).sort(([a], [b]) => a.localeCompare(b)));
+// The ceiling on one envelope's data. DECLICK_MAX_BYTES moves it for every call, --max-bytes for one, 0 is off.
+function maxBytesOf(f) {
+  const raw = f.maxBytes ?? process.env.DECLICK_MAX_BYTES ?? 8192;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) throw fail(`DECLICK_MAX_BYTES must be 0 or a positive integer, got ${raw}`);
+  return n;
+}
 
 // Where this run's request actually goes, mirroring how the request engines pick a base.
 function scopeFor(m, flags) {
@@ -119,8 +132,20 @@ async function runOne({ m, v, verb, args, flags }) {
       error: g.source === 'policy' ? `blocked by policy: ${g.reason}`
         : g.decision === 'require_approval' ? `needs approval: ${g.reason}${g.approvalId ? ` (approvalId ${g.approvalId})` : ''}` : `blocked by governance: ${g.reason}` };
   }
+  // The cache sits exactly where the engine call is, so it inherits that place in the order: the policy has
+  // already decided above, and the guard never ran, because only a read-only verb can ask for a cache at all.
+  const ttl = ttlOf(flags);
+  if (ttl > 0 && mutating) throw fail(`cache applies to read-only verbs; ${verb} is mutating`);
+  let cache, key = null;
+  if (ttl > 0 && !flags.dryRun) {
+    key = cacheKey({ name, verb, args, flags: ownFlags(flags) });
+    const hit = cacheRead(name, key, ttl);
+    if (hit) { result = hit.result; cache = { hit: true, age: hit.age }; }
+  }
   result ??= await engines[m.engine].execute(m, verb, args, flags);
-  return { result, governance, mutating };
+  // Only an answer that worked is worth pinning for the TTL: a 500 stored is a 500 repeated until it expires.
+  if (key && !cache) cache = { hit: false, stored: result?.ok === true && cacheWrite(name, key, { at: new Date().toISOString(), verb, args, flags: ownFlags(flags), result }) };
+  return { result, governance, mutating, cache };
 }
 
 // --each items: NDJSON, one object per line, or a JSON array when the file starts with [. Blank lines are skipped
@@ -171,11 +196,18 @@ function stepOf({ raw, where }, { v, args, flags, dry }) {
   return { raw, args: a.map(x => (x === undefined || x === null ? x : String(x))), flags: { ...flags, ...own, ...(dry ? { dryRun: true } : {}) } };
 }
 
-// The item's data, shaped exactly as a single run of it would have been: --fields and --limit are the item's.
-const shapeItem = (data, v, f) => shape(data, f.dryRun ? { limit: f.limit }
-  : { fields: f.fields, limit: f.limit, rows: f.rows ?? (f.fields !== undefined || f.limit !== undefined ? v.returns?.rowsPath : undefined), auto: true }).data;
+// The item's data, shaped exactly as a single run of it would have been: --where, --fields and --limit are the
+// item's, and so is the cap, which holds one entry to its own ceiling before the batch is held to the whole.
+function shapeItem(data, v, f) {
+  const wants = f.fields !== undefined || f.limit !== undefined || f.where !== undefined;
+  const shaped = shape(data, f.dryRun ? { limit: f.limit }
+    : { fields: f.fields, limit: f.limit, where: f.where, verb: v.name, rows: f.rows ?? (wants ? v.returns?.rowsPath : undefined), auto: true }).data;
+  const max = f.dryRun ? 0 : maxBytesOf(f);
+  const bytes = max > 0 ? jsonBytes(shaped) : 0;
+  return max > 0 && bytes > max ? { data: capData(shaped, max), capped: { bytes, max, hint: CAP_HINT } } : { data: shaped };
+}
 
-let flags = {}, verb, m, v, ran = false, result, text, args = [], mutating = false, each = null, defaults = [], errorNote;
+let flags = {}, verb, m, v, ran = false, result, text, args = [], mutating = false, each = null, defaults = [], errorNote, cache, cap = 0;
 let governance = { enabled: !!process.env.DASHCLAW_API_KEY, decision: 'skipped', reason: 'no mutating action' };
 const ledger = new Map();
 try {
@@ -208,6 +240,9 @@ try {
     // command line is one error, not one per item, and the audit line knows a mutating verb even when it threw.
     checkFlags(v, verb, flags);
     mutating = !!v.mutating || derivedMutating(m, v) === true;
+    // Same rule as a bad flag: one error for the command line, not one per item of a file.
+    if (ttlOf(flags) > 0 && mutating) throw fail(`cache applies to read-only verbs; ${verb} is mutating`);
+    cap = flags.dryRun ? 0 : maxBytesOf(flags);
     if (flags.each !== undefined) {
       const steps = readEach(flags.each).map(it => stepOf(it, { v, args, flags, dry: !!typed.dryRun }));
       const entries = [], govs = []; let blockedAt = 0;
@@ -224,7 +259,7 @@ try {
         if (!one) continue;
         govs.push(one.governance);
         if (!one.result.ok) { entries.push({ input: step.raw, ok: false, exit: one.result.exit ?? EXIT.ERROR, error: one.result.error }); if (one.result.exit === EXIT.BLOCKED) blockedAt = entries.length; continue; }
-        try { entries.push({ input: step.raw, ok: true, exit: EXIT.OK, data: shapeItem(one.result.data, v, step.flags) }); }
+        try { const { data, capped } = shapeItem(one.result.data, v, step.flags); entries.push({ input: step.raw, ok: true, exit: EXIT.OK, data, ...(capped ? { capped } : {}) }); }
         catch (e) { entries.push({ input: step.raw, ok: false, exit: e.exit ?? EXIT.ERROR, error: e.message }); }
       }
       const failed = entries.filter(e => !e.ok).length;
@@ -237,22 +272,24 @@ try {
       result = { ok: true, data: entries, meta: { count: entries.length, failed, each: true } };
       text = entries.map((e, i) => `${i + 1}\t${e.ok ? 'ok' : `exit ${e.exit}`}\t${e.ok ? JSON.stringify(e.data) : e.error}`).join('\n');
     } else {
-      ({ result, governance, mutating } = await runOne({ m, v, verb, args, flags }));
+      ({ result, governance, mutating, cache } = await runOne({ m, v, verb, args, flags }));
       ran = true;
     }
   }
 } catch (e) { result = { ok: false, error: e.message, exit: e.exit ?? EXIT.ERROR }; }
 
 const creds = each ? [...ledger.values()] : credUsage();
-result.meta = { ...(result.meta || {}), governance, ...(defaults.length ? { defaults } : {}), ...(creds.length ? { credentials: creds } : {}) };
+result.meta = { ...(result.meta || {}), governance, ...(cache ? { cache } : {}), ...(defaults.length ? { defaults } : {}), ...(creds.length ? { credentials: creds } : {}) };
 const json = flags.json ?? explicitJson() ?? !process.stdout.isTTY;
 // A verb whose spec says where its rows live unwraps them by default, but only once the caller asks to filter
 // (--fields or --limit): otherwise the resource itself is the answer, not a guess at which array is "the rows".
-const wantsRows = flags.fields !== undefined || flags.limit !== undefined;
-// A batch is one envelope of items that are already shaped: the caller's --fields belonged to each item, and the
-// list itself is never sliced, so its own length is the limit.
-const out = emit(result, each ? { json, limit: Math.max(each.count, 1) }
-  : { json, fields: flags.fields, limit: flags.limit, rows: ran ? flags.rows ?? (wantsRows ? v.returns?.rowsPath : undefined) : undefined, auto: ran, dryRun: !!flags.dryRun && result.ok });
+const wantsRows = flags.fields !== undefined || flags.limit !== undefined || flags.where !== undefined;
+// A batch is one envelope of items that are already shaped: the caller's --fields and --where belonged to each
+// item, and the list itself is never sliced, so its own length is the limit. The cap still holds the whole.
+// A batch is capped per item, never as a whole: its entries are the record of what ran, and for a mutating verb a
+// dropped entry would be a write that happened with nothing left to say so.
+const out = emit(result, each ? { json, limit: Math.max(each.count, 1), maxBytes: 0 }
+  : { json, fields: flags.fields, limit: flags.limit, where: flags.where, verb, maxBytes: cap, rows: ran ? flags.rows ?? (wantsRows ? v.returns?.rowsPath : undefined) : undefined, auto: ran, dryRun: !!flags.dryRun && result.ok });
 // The envelope is ok because the batch ran; the exit code is the first item that was not.
 if (each) out.exit = each.exit;
 if (text && !json) out.text = text;
@@ -271,6 +308,9 @@ if (m && verb && verb !== 'describe') {
     }
   } catch {}
 }
+// What this run cost the caller's context, measured on the envelope that is about to go out; declick audit --sum
+// adds it up per adapter. A run that failed before it printed anything still wrote its error, so it counts too.
+const bytes = Buffer.byteLength(out.text);
 // One line per invocation: what ran, what governance said, what it cost. DECLICK_AUDIT=off turns it off.
 if (process.env.DECLICK_AUDIT !== 'off') {
   try {
@@ -280,7 +320,8 @@ if (process.env.DECLICK_AUDIT !== 'off') {
       args: redactArgs(Object.fromEntries((v?.args || []).map((a, i) => [a.name, args[i]]).filter(([, x]) => x !== undefined))),
       flags: Object.fromEntries(Object.entries(flags).filter(([k]) => CONTRACT.includes(k))),
       ...(each ? { each: { count: each.count, failed: each.failed } } : {}),
-      mutating, dryRun: !!flags.dryRun, governance, exit: out.exit, ok: out.exit === 0, ms: Date.now() - started,
+      ...(cache ? { cache: cache.hit ? 'hit' : 'miss' } : {}),
+      mutating, dryRun: !!flags.dryRun, governance, exit: out.exit, ok: out.exit === 0, bytes, ms: Date.now() - started,
     }) + '\n');
   } catch {}
 }

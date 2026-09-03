@@ -9,6 +9,9 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export DECLICK_HOME="${TMPDIR:-/tmp}/declick-qa-$$"; export DECLICK_SKILLS="$DECLICK_HOME/skills"
 mkdir -p "$DECLICK_HOME" "$DECLICK_SKILLS"; trap 'rm -rf "$DECLICK_HOME"' EXIT
+# Saved before the unset below so the dashclaw contract check (which talks to the real DashClaw instance
+# directly, not through $D) still sees the operator's own env; every $D call under test stays ungoverned.
+QA_DASHCLAW_KEY="${DASHCLAW_API_KEY:-}"; QA_DASHCLAW_URL="${DASHCLAW_URL:-}"
 unset DASHCLAW_API_KEY DASHCLAW_URL
 if [ "${QA_FROM_NPM:-}" = "1" ]; then D="declick"; else D="node $ROOT/bin/declick.mjs"; fi
 fails=0; checks=0
@@ -42,6 +45,21 @@ expect "weather point sends the User-Agent default and answers" '"properties.gri
 # already holds lifts that, and the check still proves the same --fields behaviour. Locally, no token, same call.
 GH_AUTH=(); [ -n "${GITHUB_TOKEN:-}" ] && GH_AUTH=(--header "Authorization: Bearer $GITHUB_TOKEN")
 expect "github repository with --fields is the repository, not its topics" '"full_name":"ucsandman/declick"' $D run ghapi repos-get ucsandman declick "${GH_AUTH[@]}" --fields full_name,stargazers_count
+if [ -n "$QA_DASHCLAW_KEY" ] && [ -n "$QA_DASHCLAW_URL" ]; then
+  # argv (not a string-interpolated import specifier) so a POSIX-style path from a bash on Windows still
+  # resolves: pathToFileURL handles whatever form the shell hands it, the way `node $ROOT/bin/declick.mjs` does.
+  gbody="$(node --input-type=module -e "
+    import { pathToFileURL } from 'node:url';
+    const { guardBody } = await import(pathToFileURL(process.argv[1]).href);
+    process.stdout.write(JSON.stringify(guardBody({ tool: 'qa', action: 'delete-pet', engine: 'openapi', method: 'delete', target: 'https://api.example.com/pet/7', args: { id: '7' } })));
+  " "$ROOT/src/guard.mjs")"
+  gresp="$(curl -s -o "$DECLICK_HOME/dashclaw-resp.json" -w '%{http_code}' -X POST "$QA_DASHCLAW_URL/api/guard" -H 'content-type: application/json' -H "x-api-key: $QA_DASHCLAW_KEY" -d "$gbody")"
+  gbody_out="$(cat "$DECLICK_HOME/dashclaw-resp.json" 2>/dev/null)"
+  if [ "$gresp" = "200" ] && printf '%s' "$gbody_out" | grep -q '"decision"'; then ok "dashclaw contract: guardBody() posts to /api/guard and gets a decision"
+  else bad "dashclaw contract: guardBody() posts to /api/guard and gets a decision" "http $gresp: $(printf '%s' "$gbody_out" | head -c 200)"; fi
+else
+  echo "skip dashclaw contract (DASHCLAW_API_KEY unset)"
+fi
 expect "petstore user endpoint (README quickstart line 4)" '"username":"user1"' $D run pety get-user-by-name user1 --fields username,email
 
 echo "== auth and contract"

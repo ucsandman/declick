@@ -68,7 +68,7 @@ export function describe(m, { full = false, verb, limit, offset } = {}) {
   // Everything that isn't a verb line, so the loop below can stop with room left for it. The footer's own length
   // depends on how many verbs it names, but never more digits than `total`, so sizing it at `total` is a safe max.
   const hasFlags = allVerbs.some(v => (v.flags || []).length);
-  const commonLine = `common: --json --fields --limit --rows --dry-run${hasFlags ? ' --full' : ''}   exit: 0 ok 1 err 2 missing 3 blocked 4 auth`;
+  const commonLine = `common: --json --fields --limit --rows --where --dry-run${hasFlags ? ' --full' : ''}   exit: 0 ok 1 err 2 missing 3 blocked 4 auth`;
   const requestLine = full && ['openapi', 'postman', 'har'].includes(m.engine) ? 'request: --header --base-url --server --content-type --body-file --output --retry --timeout --curl --verbose' : null;
   const authLine = m.auth?.env?.length ? `auth env: ${m.auth.env.map(e => oneLine(e, 100)).join(', ')}` : null;
   // A defaults file changes what every run of this adapter answers, so it is said out loud here rather than

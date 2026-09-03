@@ -13,7 +13,7 @@ test('describe is compact and lists verbs', () => {
   assert.match(s, /^pet \(openapi\)  source: x\.json  base: https:\/\/api\.example\.com\/v1/);
   assert.match(s, /list-pets\s+List pets by status/);
   assert.match(s, /add-pet <name>\s+Create a pet \[mutating\]/);
-  assert.match(s, /--json --fields --limit --rows --dry-run --full/);
+  assert.match(s, /--json --fields --limit --rows --where --dry-run --full/);
   assert.ok(!s.includes('available|pending|sold'), 'flag detail only in --full');
   assert.ok(s.length < 2000);
 });

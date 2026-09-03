@@ -115,9 +115,12 @@ Every generated adapter, and every `declick` command, follows this:
 | `--fields a,b` | Project only named fields, dotted paths allowed (`--fields error.code,items.0.name`), resolved per row. Applies to top-level arrays and objects. A field list that matches nothing anywhere is exit 1 naming the available keys; a partial miss shows up in `meta.unknownFields`. |
 | `--limit N` | Cap list output. Default 50. Must be a positive integer; anything else, including `0`, is exit 1. |
 | `--rows path` | Unwrap a dotted array field inside a response object instead of projecting the object itself. `meta.rows` names the path, `meta.extra` carries the sibling fields (cursor, total, etc). Without `--rows`, a verb whose compiled `returns.rowsPath` names one is auto-unwrapped only when `--fields` or `--limit` is passed, so an unfiltered call returns the resource as the API sent it; `rowsPath` is compiled only for a list-shaped property, and `describe`/`manifest`/management output is never auto-unwrapped. |
+| `--where k=v` | Filter a list before `--fields` and `--limit`. Repeatable and comma-separable, dotted paths allowed, every condition has to hold. Operators: `k=v`, `k!=v`, `k~re` (case-insensitive regex), `k>n`, `k>=n`, `k<n`, `k<=n`, `k=*` (present and not null). `meta.where` is `{matched, of}` and `meta.count` is what matched. A condition on a verb that answers with one object is exit 1. See "Filter a list before it reaches the model". |
 | `--dry-run` | Every mutating verb accepts it, prints what it would do, and sets `meta.dryRun: true`. Management commands that write (`add`, `build`, `accept`, `import`, `skill`, `remove`, `path --install`, `desk arm\|disarm`) accept it too; `author`, `repair` and `ui` have no preview and refuse it. |
 | `--each file` | Run the verb once per item in a file of inputs (`-` for stdin), in order, and get one envelope back: `data` is one entry per item, `meta` carries `count`, `failed` and `each: true`. Exit 0 when every item is ok, otherwise the exit of the first that was not. Each item is guarded and shaped on its own; `--dry-run` previews every item and an item can never cancel it. A failing item does not stop the rest; a blocked one does. See "Run a verb over a list". |
 | `--no-defaults` | Ignore `~/.declick/<name>/defaults.json` for this call. `DECLICK_DEFAULTS=off` does the same for every call. See "Flag defaults per adapter". |
+| `--max-bytes N` | Ceiling on the bytes `data` may carry, default 8192, `0` off, `DECLICK_MAX_BYTES` moves the default. Applied after `--where`, `--rows`, `--fields` and `--limit`; never to `--dry-run`, `--help` or `describe`. Over the cap: `meta.truncated: true`, `meta.capped: {bytes, max, hint}`, exit still 0. See "A ceiling on one answer". |
+| `--cache <s>` | Answer a read-only verb from the response the wire already gave, when one is younger than `<s>` seconds. `meta.cache` is `{hit, age}` or `{hit: false, stored}`. Exit 1 on a mutating verb; `--dry-run`, `--cache 0` and `DECLICK_CACHE=off` bypass it. See "Cache a read". |
 | Streams | A `text/event-stream` response is read as it arrives instead of buffered whole: `data` is an array of parsed events, and when the timeout budget runs out mid-stream you get every event that already came in, `meta.stream.truncatedByTimeout: true`, `meta.truncated: true` and exit 0, not an error. |
 | Flags | `--flag value` and `--flag=value` both work. Boolean flags (`--json`, `--dry-run`, `--full`, `--help`) never consume the next argument, so order does not matter. Unknown flags are exit 1, never ignored. `--` ends flags. |
 | Request flags | Verbs on the engines that speak HTTP (openapi, postman, har) also take `--header 'K: V'` (repeatable), `--base-url <url>` or `--server <index\|description>` (or `DECLICK_<NAME>_BASE_URL`), `--content-type <type>` to pick among the declared body types, `--body @file` / `--body-file <path>` / `--body -` for stdin, `--output <path>` for a binary response, `--retry N` and `--timeout <ms>`, `--verbose` (`meta.request`, `meta.response`, `meta.status`) and `--curl` (a runnable line with every secret masked as its env name). `describe --full` lists them. Each takes a value, so a bare `--retry` is exit 1, not a silent default. |
@@ -146,6 +149,56 @@ $ declick run petstore get-pet-by-id --each pets.ndjson --dry-run
 ```
 
 Every entry carries the item it came from, so a result is never separated from its input. A failing item is `{"input":..., "ok":false, "exit":N, "error":"..."}` and the batch keeps going; the process exits with the first failing item's code and `meta.failed` says how many there were. Governance is the one thing that stops a batch: after an item is blocked, the rest are reported as `not run: item N was blocked` rather than sent to the guard one by one. A file that cannot be read at all (a missing path, a line that is not JSON, an item that is neither shape) is exit 1 naming the line number, and nothing runs. The run log gets one line for the batch.
+
+## Filter a list before it reaches the model
+
+`--where k=v` narrows a list on the machine that has it. It runs before `--fields` and `--limit`, so a page of two hundred rows becomes the four that matter without any of the other one hundred and ninety six passing through the context.
+
+```bash
+$ declick run shop list-pets --where status=sold --where price>20 --fields id,name
+{"ok":true,"data":[{"id":4,"name":"Cleo"}],
+ "meta":{"count":1,"truncated":false,"where":{"matched":1,"of":200}, ...}}
+```
+
+| Operator | Means |
+|---|---|
+| `k=v` | equal. A number compares as a number (`id=7`), a bool as a bool (`done=true`), everything else as an exact string |
+| `k!=v` | not equal, which includes a row with no value at that path |
+| `k~re` | case-insensitive regex (`name~^a`, `url~github`) |
+| `k>n` `k>=n` `k<n` `k<=n` | numeric comparison; a value that is not a number fails the condition |
+| `k=*` | present and not null |
+
+The flag repeats and splits on commas (`--where status=sold,price>20`), every condition has to hold, and a dotted path resolves per row (`--where owner.city=Oslo`). A regex cannot contain a comma, the same limit `--fields` has. `meta.where` is `{matched, of}` and `meta.count` is what matched, so a filtered call still says how big the page was. A condition alone unwraps a response object's rows the way `--fields` does. A condition on a verb that answers with one object is exit 1: `where applies to lists; get-pet returns an object`.
+
+## A ceiling on one answer
+
+A verb that returns 50 KB of JSON costs about 15,000 tokens of the agent's context, every time it is called, whether or not the agent needed more than two fields. So `data` has a ceiling: 8192 bytes by default, `DECLICK_MAX_BYTES` moves it, `--max-bytes N` moves it for one call, and `0` turns it off. Nothing fails; the answer arrives smaller and says so.
+
+```bash
+$ declick run shop list-big
+{"ok":true,"data":[{"id":1,...},{"id":2,...}, ...30 of 200 rows],
+ "meta":{"count":200,"truncated":true,
+         "capped":{"bytes":52310,"max":8192,"hint":"add --fields or --limit; declick describe <name> --verb <verb> shows the shape"}}}
+```
+
+The cap is the last thing to touch the payload, after `--where`, `--rows`, `--fields` and `--limit`, so a call that already asked for two fields is rarely near it. A list drops rows from the tail and keeps at least one. A string is sliced. An object keeps every key and replaces its biggest values, biggest first, with `<40002 bytes; add --fields or --limit>`, so the shape an agent needs in order to write the right `--fields` is still readable at any cap. `--dry-run`, `--help` and `describe` are never capped. A `--each` batch is capped per item and never as a whole, because every entry is the record of a run that happened; a capped item carries its own `capped`.
+
+## Cache a read
+
+`--cache <seconds>` answers a read-only verb from the response the wire already gave, if one is younger than that.
+
+```bash
+declick run shop list-pets --cache 300 --fields id,name     # miss: goes to the API, stores the raw response
+declick run shop list-pets --cache 300 --fields id,status   # hit: same entry, different shaping, no request
+```
+
+The key is the adapter, the verb, its positional args and its own flags. The contract flags are deliberately not in it, so `--fields`, `--limit`, `--where` and `--json` all read one stored response instead of storing four. Entries are files under `~/.declick/<name>/cache/`, holding the raw engine result under `{at, verb, args, flags, result}`; `declick build` clears them, because a rebuild recompiles the verbs they belong to, and `declick remove` takes them with the adapter.
+
+`meta.cache` is `{hit: true, age: 42}` or `{hit: false, stored: true}`, and the audit line records `cache: hit` or `cache: miss`. Only a result that worked is stored, so a 500 is not pinned for the TTL. The local policy is still consulted on a hit, so a rule that blocks a verb blocks it whether or not an answer is on disk; the DashClaw guard is not, because only read-only verbs get this far. `--cache` on a mutating verb is exit 1 naming the verb, `--dry-run` neither reads nor writes an entry, and `--cache 0` or `DECLICK_CACHE=off` goes to the wire and stores nothing. A defaults file can set it per verb:
+
+```bash
+declick defaults shop --verb list-pets --set cache=300
+```
 
 ## Flag defaults per adapter
 
@@ -206,7 +259,17 @@ Set `DASHCLAW_API_KEY` and `DASHCLAW_URL` (no default endpoint; `DASHCLAW_URL` m
 
 Once `DASHCLAW_API_KEY` is set, **strict is the default**: a guard that is unreachable, times out, blocks, or answers anything but a decision is exit 3. Set `DECLICK_GUARD=open` to fall back to warn-and-proceed on a guard failure instead (a `block` or `require_approval` decision the guard actually returns is still refused either way). `require_approval` exits 3 and carries `data.approvalId`. Every envelope, ok or not, carries `meta.governance: {enabled, decision, reason}` (`decision` is one of `allow`, `warn`, `block`, `require_approval`, `skipped` (no key set), `dry-run`, or `failed-open`).
 
-Every invocation through `bin/run.mjs` appends one line to `~/.declick/audit.jsonl` (newest-last on disk, `declick audit` reads it newest-first): adapter, verb, mutating, dryRun, the governance decision, exit code and duration. `DECLICK_AUDIT=off` turns this off.
+Every invocation through `bin/run.mjs` appends one line to `~/.declick/audit.jsonl` (newest-last on disk, `declick audit` reads it newest-first): adapter, verb, mutating, dryRun, the governance decision, exit code, the bytes the envelope wrote to stdout and the duration. `DECLICK_AUDIT=off` turns this off.
+
+`declick audit --sum` adds those lines up instead of listing them, per adapter and in total, sorted by bytes read, so the question "what did the adapters actually cost this week" is one command. `--adapter`, `--since` and `--failed` narrow the sum the way they narrow the lines.
+
+```
+$ declick audit --sum --since 24h --json false
+github    88 calls   201.4 KB   14210ms   1 failed
+petstore  102 calls  118.9 KB   7734ms    2 failed
+calc      22 calls   19.9 KB    5102ms    0 failed
+212 calls, 340.2 KB read through adapters, 3 failed
+```
 
 Credentials are scoped to the origin the adapter was built from: a request that goes to a different host than the one stored at build time (via `--base-url`/`--server` or an env override) does not get that adapter's keys unless the target name is listed in `DECLICK_ENV_ALLOW` (comma-separated) or the origin change was explicit on the command line, and either way `meta.credentials[]` records `{name, from, scopedTo, sentTo}` so the cross-origin release is visible in the envelope, not just a warning on stderr.
 
@@ -284,7 +347,7 @@ An agent with only a shell can do all of this. Every command takes `--json` and 
 | `declick engines [--source x]` / `declick version` / `declick path [--install] [--dry-run]` | which engines this build has and what a source would compile to, which build, where things are; `--dry-run` on `path --install` previews without touching PATH |
 | `declick author`, `repair`, `proposals`, `accept [--dry-run]`, `recipes`, `recipe`, `desk status \| arm [min] \| disarm [--dry-run]` | the desktop authoring loop; `author` and `repair` have no `--dry-run` preview |
 | `declick commands` / `declick <cmd> --help` | the whole command surface as data, and one row (flags, examples, whether it previews) for one command. The shipped `declick` skill is rendered from the same table, so it cannot drift. |
-| `declick audit [--adapter n] [--since 10m] [--failed]` | one line per invocation from `~/.declick/audit.jsonl`, newest first: what ran, what governance decided, redacted args |
+| `declick audit [--adapter n] [--since 10m] [--failed] [--sum]` | one line per invocation from `~/.declick/audit.jsonl`, newest first: what ran, what governance decided, redacted args, bytes and ms. `--sum` totals them per adapter instead |
 | `declick desk windows \| tree <window> \| read <window> <path> \| clipboard get\|set \| arm [min] \| disarm` | the desktop as data: `tree` takes `--depth N`, `--type Button`, `--grep re`, `--interactive`; `read` takes `--prop value\|name\|text\|toggle\|selected\|enabled` |
 | `declick web tree <url> [--selector css] [--grep re]` / `declick web text <url> [--selector css] [--grep re]` | `tree` is a page as a tree of elements a recipe can click, interactive ones first, instead of a screenshot; `text` is the page's visible text as numbered lines. `--grep` filters either one (role, name and href for `tree`; the line for `text`) and exits 2 when nothing matches, so `declick web text <url> --grep "privacy policy"` answers "does the page say X" in one call |
 | `declick defaults <n> [--verb v] [--set k=v] [--unset k] [--clear] [--dry-run]` | flag defaults for one adapter, printed, set, unset or cleared. `--set` and `--unset` repeat; without `--verb` they edit the `*` scope that applies to every verb. Every `--set` is checked against the flags that scope has, so a typo cannot be written |

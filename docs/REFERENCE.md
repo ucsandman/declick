@@ -78,6 +78,7 @@ Every text field that can come from an untrusted spec or an imported bundle (`so
 - A key the verb does not accept is exit 1 naming the file and the key; `declick defaults <name> --unset <key>` is the fix and is never checked against the manifest, so a file left behind by an old build is always repairable. `--set` refuses a value the runtime would reject and writes nothing.
 - A file that is not valid JSON is exit 1 when a verb runs, naming the file and the `--clear` that fixes it. `describe`, `lint`, `build` and `skill` keep working and print `defaults: unreadable`.
 - The file lives beside `manifest.json`, so `declick build` and `declick add --force` leave it alone; `declick remove` deletes the directory and takes it with it.
+- `cache` belongs in a verb scope, not in `*`: `--cache` above 0 is exit 1 on a mutating verb, so a `*` scope setting it fails every verb of the adapter that writes.
 
 `--no-defaults` skips the file for one call; `DECLICK_DEFAULTS=off` skips it for every call.
 
@@ -92,7 +93,61 @@ Every text field that can come from an untrusted spec or an imported bundle (`so
 
 An item that mixes the two, an item that is not an object, a line that is not JSON, and a file that does not exist are exit 1 naming the line, and nothing runs. Values become the tokens the same call would have carried: a number its digits, an array a repeated flag, an object JSON, `true`/`false` a boolean flag. A value the parser rejects fails that item only, like a flag name the verb does not know. Command-line args and flags are the defaults for every item and are overridden per key, except `--dry-run`, which an item can turn on but never off.
 
-The answer is one envelope. `data` is one entry per item in input order: `input` (the item as read), `ok`, `exit`, and `data` (shaped by the item's own `--fields`, `--limit`, `--rows`) or `error`. `meta` carries `count`, `failed` and `each: true` beside the usual `governance` and `credentials`. Exit 0 when every item is ok, otherwise the first failing item's code. A failing item does not stop the ones after it; a blocked item does, and the entries behind it read `not run: item N was blocked` with exit 3. `~/.declick/audit.jsonl` gets one line for the batch carrying `each: {count, failed}`.
+The answer is one envelope. `data` is one entry per item in input order: `input` (the item as read), `ok`, `exit`, and `data` (shaped by the item's own `--where`, `--fields`, `--limit`, `--rows`, and held to its own `--max-bytes`, which adds a `capped` field to that entry) or `error`. `meta` carries `count`, `failed` and `each: true` beside the usual `governance` and `credentials`. Exit 0 when every item is ok, otherwise the first failing item's code. A failing item does not stop the ones after it; a blocked item does, and the entries behind it read `not run: item N was blocked` with exit 3. `~/.declick/audit.jsonl` gets one line for the batch carrying `each: {count, failed}`.
+
+## Filtering rows (`--where`)
+
+`--where k=v` filters a list-shaped result before `--fields` and `--limit`. Rows are found exactly as `--fields` finds them: a top-level array, the array at `--rows <path>`, or the one the verb's compiled `returns.rowsPath` or the runtime auto-detect names inside a response object. A condition on its own is enough to trigger that unwrap; `--fields` or `--limit` is not also required.
+
+| Operator | Meaning |
+|---|---|
+| `k=v` | equal. A number compares as a number, a boolean as a boolean, an object or array against its JSON, everything else as an exact (case-sensitive) string |
+| `k!=v` | the negation of `k=v`, so a row with no value at that path matches |
+| `k~re` | JavaScript regex, case-insensitive, tested against the value as a string (an object as its JSON) |
+| `k>n` `k>=n` `k<n` `k<=n` | numeric. A row whose value is not a number, or a condition whose value is not a number, never matches |
+| `k=*` | present and not `null` |
+
+The flag is repeatable and splits on commas, so `--where a=1 --where b=2` and `--where a=1,b=2` are the same; every condition has to hold. A regex therefore cannot contain a comma, the same limitation `--fields` has. Keys are dotted paths resolved per row (`owner.city`), and the leftmost operator in the string wins, so `url~a=b` is a regex on `url` and `n>=5` is a `>=`.
+
+`meta.where` is `{matched, of}`: how many rows passed and how many there were before the filter. `meta.count` is `matched`, so `--limit` still reports `truncated` against what matched. A condition on a result that is not list-shaped is exit 1, `where applies to lists; <verb> returns an object`; `--dry-run` previews a request rather than returning rows, so it ignores `--where` the way it ignores `--fields`.
+
+## Output cap (`--max-bytes`)
+
+`data` has a byte ceiling. The default is 8192, `DECLICK_MAX_BYTES` changes it for every call, `--max-bytes N` for one, a `defaults.json` entry per adapter or verb, and `0` anywhere turns it off. A bare `--max-bytes`, a negative number and a non-integer are all exit 1.
+
+The cap is measured on `JSON.stringify(data)` after `--where`, `--rows`, `--fields` and `--limit` have run, so it only ever catches what those did not already narrow. It never applies to `--dry-run`, `--help` or `describe`, and never to the `error` of a failed run. Over the cap the exit code is still 0 and:
+
+- an **array** drops items from the tail until the rest fit, keeping at least one; a single item still over the cap is itself capped rather than dropped, so a row is never returned half-serialized,
+- a **string** is sliced,
+- an **object** keeps every key and replaces values, largest first, with `<N bytes; add --fields or --limit>` until it fits, so the key names an agent needs in order to write the right `--fields` survive any cap.
+
+`meta.truncated` becomes `true` and `meta.capped` is `{bytes, max, hint}`, where `bytes` is the size before capping and `hint` is `add --fields or --limit; declick describe <name> --verb <verb> shows the shape`. Under `--each` the cap is applied to each item's data (a capped entry carries its own `capped: {bytes, max, hint}`) and never to the batch as a whole, so no entry is ever dropped: each one is the record of a run that happened.
+
+## Response cache (`--cache`)
+
+`--cache <seconds>` answers a read-only verb from a stored response younger than that many seconds instead of calling the engine.
+
+- **Read-only only.** `--cache` with a value above 0 on a mutating verb is exit 1, `cache applies to read-only verbs; <verb> is mutating`, before anything is sent. On a `--each` run the command line is checked once, and an item that sets it on a mutating verb fails that item.
+- **Key.** sha256 over the adapter name, the verb, the positional args and the verb's own flags, sorted so typing order cannot change it. The contract flags (`--json`, `--fields`, `--limit`, `--rows`, `--where`, `--max-bytes`, `--cache` itself, the request flags) are not in the key, so the same call shaped four ways reads one entry.
+- **Store.** `~/.declick/<name>/cache/<key>.json`, holding `{at, verb, args, flags, result}` where `result` is the raw engine result, before any shaping. Only a result that worked is stored. An entry that cannot be parsed is a miss, not an error.
+- **Order.** The lookup sits exactly where the engine call sits: the local policy has already decided, so a `block` still blocks a verb whose answer is on disk; the DashClaw guard is downstream of nothing here, because only read-only verbs reach the cache at all.
+- **Off.** `--cache 0`, `DECLICK_CACHE=off` and `--dry-run` all bypass it and store nothing.
+- **Cleared by.** `declick build <name>` (which recompiles the verbs the entries belong to; `--dry-run` keeps them) and `declick remove <name>` (which deletes the adapter directory).
+
+`meta.cache` is `{hit: true, age: <seconds>}` or `{hit: false, stored: <bool>}`, and the audit line carries `cache: "hit"` or `cache: "miss"` for a single run.
+
+## The run log (`audit.jsonl`)
+
+`$DECLICK_HOME/audit.jsonl`, one JSON object per invocation of `bin/run.mjs`, appended: `at`, `adapter`, `verb`, `args` (redacted), `flags` (the contract flags only), `mutating`, `dryRun`, `governance`, `exit`, `ok`, `bytes`, `ms`, plus `each: {count, failed}` for a batch and `cache: "hit"|"miss"` for a cached run. `bytes` is the byte length of the envelope the run wrote to stdout. `DECLICK_AUDIT=off` writes nothing.
+
+`declick audit` lists the lines newest first. `declick audit --sum` returns the same rows added up:
+
+```json
+{"calls": 212, "ok": 209, "failed": 3, "blocked": 1, "bytes": 348365, "ms": 27046,
+ "adapters": [{"adapter": "github", "calls": 88, "bytes": 206234, "ms": 14210, "failed": 1}]}
+```
+
+`adapters` is sorted by `bytes` descending, ties by name; a run that never named an adapter is bucketed as `(none)`. `--adapter`, `--since` and `--failed` filter the rows before the sum. A line written before `bytes` existed counts as 0 rather than dropping the run. On a TTY (or with `--json false`) it prints one tab-separated line per adapter and a total line, `212 calls, 340.2 KB read through adapters, 3 failed`.
 
 ## Local policy (`policy.json`)
 
@@ -169,6 +224,8 @@ For an openapi verb whose response content-type is `text/event-stream`, `data` i
 | `DECLICK_GUARD` | `strict` (default once a key is set) or `open` |
 | `DECLICK_AUDIT` | `off` disables `~/.declick/audit.jsonl` |
 | `DECLICK_DEFAULTS` | `off` ignores every `~/.declick/<name>/defaults.json` |
+| `DECLICK_MAX_BYTES` | Byte ceiling on a run's `data`, default 8192, `0` turns the cap off |
+| `DECLICK_CACHE` | `off` bypasses `--cache` everywhere and stores nothing |
 | `DECLICK_POLICY` | path of the policy file, default `~/.declick/policy.json` |
 | `DECLICK_ENV_ALLOW` | Comma-separated key names allowed to cross origins |
 | `DECLICK_<NAME>_BASE_URL` | Per-adapter base URL override |
