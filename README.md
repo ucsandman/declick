@@ -7,7 +7,7 @@ Stop writing a parser for every tool your agent calls. declick reads a source on
 [![node](https://img.shields.io/badge/node-%3E%3D24-informational)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-Elastic--2.0-blue)](LICENSE)
 
-![declick compiling the petstore spec, describing it, making a real call, and naming the missing key on exit 4](docs/demo.gif)
+![declick compiling the National Weather Service, Openverse, a GraphQL API, a SQLite database, the gh binary, an MCP server and GitHub's 1,224-verb REST spec, then making live calls, hitting a governance block, and listing the audit log](docs/demo.gif)
 
 ## Quickstart
 
