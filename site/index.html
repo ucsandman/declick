@@ -32,7 +32,7 @@
   "@type": "SoftwareApplication",
   "name": "declick",
   "applicationCategory": "DeveloperApplication",
-  "softwareVersion": "0.5.0",
+  "softwareVersion": "0.5.1",
   "description": "Compile an OpenAPI spec, GraphQL API, MCP server, Postman collection, HAR capture, SQLite file, another CLI, a browser page, or a Windows app into a command line tool that returns one envelope with five exit codes.",
   "url": "https://declick.dev/",
   "softwareRequirements": "Node 24 or newer",
@@ -88,7 +88,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 </div>
 </div>
 <figure class="block">
-<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.5.0","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
+<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.5.1","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
 <figcaption><span class="cap"><code>declick version --json</code></span><span class="chip">exit 0</span></figcaption>
 </figure>
 <nav class="links secnav" aria-label="Sections of this page">
@@ -470,7 +470,7 @@ common: --json --fields --limit --dry-run --help   exit: 0 ok 1 err 2 missing 3 
 </div>
 </div>
 <h3 class="head-gap">Tier two, opt in</h3>
-<p class="prose head-gap">The guard is <a href="https://github.com/ucsandman/DashClaw">DashClaw</a>, the approval and policy layer for unattended agents from the same author: it intercepts a risky action before it runs and blocks it, or asks a person to approve it from anywhere. With no <code>DASHCLAW_API_KEY</code> set, a mutating call proceeds with nothing on stderr, and the envelope records <code>governance.enabled</code> false with the reason <code>no guard configured</code>. A local <code>~/.declick/policy.json</code> decides first, with or without a key: allow, warn or block by adapter and verb, first matching rule wins, no network involved. Set the key and <code>DASHCLAW_URL</code> and every real mutating call posts <code>{tool, action, risk_score, method, target, args}</code> to your guard first, secret-shaped args replaced by <code>&lt;redacted&gt;</code> and everything else truncated at 64 characters, with a 3 second timeout. From then on strict is the default: a guard that is unreachable, times out, or answers anything but a decision is exit 3. <code>DECLICK_GUARD=open</code> restores warn-and-proceed on a guard failure; a block or <code>require_approval</code> the guard actually returns is refused either way. Every invocation appends one line to <code>~/.declick/audit.jsonl</code>, <code>declick audit</code> reads it newest first, and <code>DECLICK_AUDIT=off</code> turns the log off. That switch is worth knowing about if you are the one who has to prove it was on.</p>
+<p class="prose head-gap">The guard is <a href="https://github.com/ucsandman/DashClaw">DashClaw</a>, the approval and policy layer for unattended agents from the same author: it intercepts a risky action before it runs and blocks it, or asks a person to approve it from anywhere. With no <code>DASHCLAW_API_KEY</code> set, a mutating call proceeds with nothing on stderr, and the envelope records <code>governance.enabled</code> false with the reason <code>no guard configured</code>. A local <code>~/.declick/policy.json</code> decides first, with or without a key: allow, warn or block by adapter and verb, first matching rule wins, no network involved. Set the key and <code>DASHCLAW_URL</code> and every real mutating call posts <code>{action_type, agent_id, agent_name, declared_goal, risk_score, target, systems_touched, tool: {name, engine, method, args}}</code> to your guard first, the key in <code>x-api-key</code>, and the decision lands as an action record on your dashboard, secret-shaped args replaced by <code>&lt;redacted&gt;</code> and everything else truncated at 64 characters, with a 3 second timeout. From then on strict is the default: a guard that is unreachable, times out, or answers anything but a decision is exit 3. <code>DECLICK_GUARD=open</code> restores warn-and-proceed on a guard failure; a block or <code>require_approval</code> the guard actually returns is refused either way. Every invocation appends one line to <code>~/.declick/audit.jsonl</code>, <code>declick audit</code> reads it newest first, and <code>DECLICK_AUDIT=off</code> turns the log off. That switch is worth knowing about if you are the one who has to prove it was on.</p>
 <div class="split head-gap">
 <div class="stack-32">
 <figure class="block">
@@ -599,14 +599,14 @@ export async function declick(adapter, verb, args = []) {
 </div>
 <figure class="block">
 <pre tabindex="0" role="group" aria-label="First line of declick describe declick"><code><span class="cmd"><span class="sig">$</span> declick describe declick</span>
-<span class="out">declick 0.5.0: turn anything into a CLI so your agents stop clicking</span></code></pre>
+<span class="out">declick 0.5.1: turn anything into a CLI so your agents stop clicking</span></code></pre>
 <figcaption><span class="cap">The first line of the text form.</span><span class="chip">exit 0</span></figcaption>
 </figure>
 </section>
 
 <section class="sec" id="requirements">
-<h2 class="head-gap">What it needs, and what 0.5.0 does not do</h2>
-<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.5.0: a macOS or Linux desktop backend.</p>
+<h2 class="head-gap">What it needs, and what 0.5.1 does not do</h2>
+<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.5.1: a macOS or Linux desktop backend.</p>
 <div class="split head-gap">
 <div>
 <table>
@@ -627,7 +627,7 @@ export async function declick(adapter, verb, args = []) {
 <div>
 <table>
 <thead>
-<tr><th scope="col">not in 0.5.0</th><th scope="col">status</th></tr>
+<tr><th scope="col">not in 0.5.1</th><th scope="col">status</th></tr>
 </thead>
 <tbody>
 <tr><td>macOS or Linux desktop backend</td><td><span class="chip">not shipped</span></td></tr>
@@ -656,7 +656,7 @@ export async function declick(adapter, verb, args = []) {
 <h2 class="head-gap">Four commands to a working adapter</h2>
 <div class="pane head-gap">
 <div>
-<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.5.0 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
+<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.5.1 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
 </div>
 <div>
 <figure class="block">
@@ -686,7 +686,7 @@ run: petstore &lt;verb&gt; [args] [--flags]   or: declick run petstore &lt;verb&
 </main>
 <footer>
 <div class="wrap">
-<p>declick 0.5.0. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p>declick 0.5.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
 <p class="links no-print"><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a><a href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
 </div>
 </footer>

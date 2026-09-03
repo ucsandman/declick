@@ -54,6 +54,20 @@ export function derivedMutating(m, v) {
   return null;
 }
 
+// What DashClaw's /api/guard is posted. `action` is kept beside `action_type` for a guard that still reads the
+// old name; the adapter, engine, method and redacted args ride in the tool object a policy can match on.
+const hostOf = t => { try { return new URL(String(t)).hostname; } catch { return null; } };
+export function guardBody({ tool, action, engine, method, target, args }) {
+  const host = hostOf(target);
+  return {
+    action_type: action, action, agent_id: 'declick', agent_name: 'declick', risk_score: riskScore({ engine, method }), target,
+    // agent_id and declared_goal are what DashClaw needs to keep the decision as an action record.
+    declared_goal: `declick run ${tool} ${action}`,
+    tool: { name: tool, engine, method, source: 'declick', args: redactArgs(args) },
+    ...(host ? { systems_touched: [host] } : {}),
+  };
+}
+
 // Returns { allowed, decision, reason, source?, approvalId? }. Throws only for an invalid policy file, which
 // fails closed: the caller turns that into exit 1, because a policy nobody can read is not a policy.
 export async function guard({ tool, action, engine, method, target, args }) {
@@ -78,9 +92,12 @@ export async function guard({ tool, action, engine, method, target, args }) {
   const { url, error } = guardUrl();
   if (error) return fail(error);
   try {
-    const r = await fetch(`${url}/api/guard`, {
-      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-      body: JSON.stringify({ tool, action, risk_score: riskScore({ engine, method }), source: 'declick', method, target, args: redactArgs(args) }),
+    // DashClaw reads an API key from x-api-key; a bearer is an OAuth token there and an oc_live key sent as one is
+    // "invalid token". The body is DashClaw's guard input: action_type, a tool object, systems_touched; record=true
+    // makes the decision an action record the dashboard shows. Fields it does not know are stripped, not refused.
+    const r = await fetch(`${url}/api/guard?record=true`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': key },
+      body: JSON.stringify(guardBody({ tool, action, engine, method, target, args })),
       signal: AbortSignal.timeout(Number(process.env.DASHCLAW_TIMEOUT_MS) || 3000),
     });
     if (!r.ok) return fail(`responded ${r.status}`);
@@ -89,11 +106,12 @@ export async function guard({ tool, action, engine, method, target, args }) {
     const reason = j.reason || j.decision;
     // An approval is pending, not refused: the caller needs the id to go and clear it.
     if (j.decision === 'require_approval') {
-      const id = j.approvalId ?? j.approval_id ?? j.id;
+      const id = j.approvalId ?? j.approval_id ?? j.decision_id ?? j.action_id ?? j.id;
       return { allowed: false, decision: 'require_approval', reason, ...(id ? { approvalId: String(id) } : {}) };
     }
     if (j.decision === 'block') return { allowed: false, decision: 'block', reason };
     if (j.decision === 'warn') { warn(`governance: ${reason}`); return { allowed: true, decision: 'warn', reason }; }
+    // allow_contained is DashClaw's allow inside a sandbox it owns; to the caller that is an allow.
     return { allowed: true, decision: 'allow', reason: j.decision };
   } catch (e) { return fail(`unreachable (${e.name === 'TimeoutError' ? 'timeout' : e.message})`); }
 }

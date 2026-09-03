@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 (2026-09-03)
+
+The DashClaw guard call now matches what a current DashClaw (5.31) accepts. Found by running strict mode against a real instance, which answered 401 to every call.
+
+- The key is sent as `x-api-key`. DashClaw reads `Authorization: Bearer` as an OAuth token, so an `oc_live` key sent that way was "invalid token" and strict mode blocked every mutating verb.
+- The body is DashClaw's guard input: `action_type` (with `action` kept as the alias), `agent_id` and `agent_name` of `declick`, `declared_goal` (`declick run <adapter> <verb>`), `risk_score`, `target`, `systems_touched` (the target host), and a `tool` object carrying the adapter name, engine, method and redacted args, where a policy can match on them. The flat `{tool, action, method, args}` shape was silently stripped by the validator and refused with `tool must be an object`.
+- The call is `/api/guard?record=true`, so every decision becomes an action record on the DashClaw dashboard, and `decision_id` or `action_id` is accepted as the approval id when the guard asks for one.
+- Tests, README and the site describe the new shape. 566 tests pass, qa 40 of 40.
+
 ## 0.5.0 (2026-09-03)
 
 Every item the 0.3.0 gap audit deferred except the macOS/Linux desktop backend. 566 tests pass.

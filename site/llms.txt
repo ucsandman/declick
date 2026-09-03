@@ -50,6 +50,6 @@
 - mcp and graphql against a private server read a bearer from <NAME>_TOKEN.
 - declick ui listens on 127.0.0.1 only.
 - New in 0.5.0: a compose engine that chains verbs from adapters already built into one verb, --each batch input on any verb, per-adapter flag defaults, a local policy.json (allow, warn, block; first match wins; no service needed), declick web text --grep, and SSE responses returned as parsed events.
-- Not shipped in 0.5.0: a macOS or Linux desktop backend.
+- Not shipped in 0.5.1: a macOS or Linux desktop backend.
 
-- [Control matrix](https://declick.dev/controls): the controls in 0.5.0 and the command that verifies each one
+- [Control matrix](https://declick.dev/controls): the controls in 0.5.1 and the command that verifies each one

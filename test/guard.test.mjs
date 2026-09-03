@@ -31,7 +31,7 @@ const FAKE_TOKEN = ['sk', 'live', 'abcdefghijklmnop'].join('-');
 const FAKE_GH = ['ghp', 'abcdefghijklmnop'].join('_');
 
 // One real server plays both roles: the governance endpoint and the API the adapter calls.
-let mode = 'allow', lastGuard = null, base, srv, apiCalls = 0;
+let mode = 'allow', lastGuard = null, lastHeaders = null, lastUrl = null, base, srv, apiCalls = 0;
 const spec = url => ({
   openapi: '3.0.0', info: { title: 'Gov' }, servers: [{ url }],
   components: { securitySchemes: { api_key: { type: 'apiKey', in: 'header', name: 'x-api-key' } } }, security: [{ api_key: [] }],
@@ -45,7 +45,7 @@ test('setup: one governed adapter pointed at a real local server', async () => {
     if (req.url.startsWith('/api/guard')) {
       let d = ''; req.on('data', c => d += c);
       return req.on('end', () => {
-        lastGuard = JSON.parse(d || '{}');
+        lastGuard = JSON.parse(d || '{}'); lastHeaders = req.headers; lastUrl = req.url;
         if (mode === 'hang') return;
         if (mode === '500') { res.writeHead(500); return res.end('boom'); }
         if (mode === 'garbage') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{"nope":1}'); }
@@ -93,9 +93,14 @@ test('the guard body carries the target, the risk score and redacted args', asyn
   mode = 'allow';
   const g = await guard({ tool: 'gov', action: 'delete-pet', engine: 'openapi', method: 'delete', target: `${base}/pet/{id}`, args: { id: '7', key: FAKE_GH } });
   assert.deepEqual(g, { allowed: true, decision: 'allow', reason: 'allow' });
-  assert.equal(lastGuard.tool, 'gov'); assert.equal(lastGuard.action, 'delete-pet'); assert.equal(lastGuard.source, 'declick');
+  // DashClaw's guard input: action_type, agent_name, a tool object; the key travels as x-api-key, not a bearer.
+  assert.equal(lastGuard.action_type, 'delete-pet'); assert.equal(lastGuard.action, 'delete-pet'); assert.equal(lastGuard.agent_name, 'declick');
   assert.equal(lastGuard.risk_score, 70); assert.equal(lastGuard.target, `${base}/pet/{id}`);
-  assert.deepEqual(lastGuard.args, { id: '7', key: '<redacted>' });
+  assert.deepEqual(lastGuard.systems_touched, ['127.0.0.1']);
+  assert.equal(lastGuard.agent_id, 'declick'); assert.equal(lastGuard.declared_goal, 'declick run gov delete-pet');
+  assert.deepEqual(lastGuard.tool, { name: 'gov', engine: 'openapi', method: 'delete', source: 'declick', args: { id: '7', key: '<redacted>' } });
+  assert.equal(lastHeaders['x-api-key'], 'k'); assert.equal(lastHeaders.authorization, undefined);
+  assert.equal(lastUrl, '/api/guard?record=true');
 });
 
 test('warn allows, block and require_approval refuse, and an approval carries its id', async () => {
@@ -219,7 +224,7 @@ test('a blocked run is exit 3 with the decision in meta; require_approval carrie
   assert.equal(J(ok).meta.governance.decision, 'allow');
   // The guard saw the resolved path and the argument values, not just the verb name.
   assert.equal(lastGuard.target, `${base}/pet/{id}`);
-  assert.deepEqual(lastGuard.args, { id: '7' });
+  assert.deepEqual(lastGuard.tool.args, { id: '7' });
 });
 
 test('an unreachable guard blocks by default and warns only with DECLICK_GUARD=open', async () => {
