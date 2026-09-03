@@ -96,6 +96,10 @@ function stdioClient({ command, args = [], timeout }) {
     },
     async listTools() { return listAll(cursor => rpc('tools/list', cursor ? { cursor } : {})); },
     async callTool(name, args) { return rpc('tools/call', { name, arguments: args || {} }); },
+    // The daemon pools live servers: it reports the child's pid and drops a client whose child has exited.
+    // On the Windows npx path that pid is the cmd.exe shim's, not the server's.
+    get pid() { return child?.pid ?? null; },
+    get alive() { return !!child && !dead; },
     close() { if (!child) return; try { child.stdin.end(); child.kill(); } catch { /* already gone */ } child = null; },
   };
 }

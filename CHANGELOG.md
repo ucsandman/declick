@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+- Warm MCP servers. `declick daemon start|stop|status` runs a detached per-user process that keeps stdio MCP servers alive between calls, so only the first `declick run <mcp adapter> <verb>` pays the server's startup instead of every one of them. A run tries the daemon with a 300 ms connect budget and falls back to spawning its own server when nothing answers, so nothing breaks when it is not up; a served run carries `meta.daemon: true`. Servers are pooled per adapter and per what it was spawned from, dropped after `DECLICK_DAEMON_IDLE_MS` (default 600000) idle, and the daemon exits once it has had none for the same window. The endpoint is per user (a named pipe on Windows, `~/.declick/daemon.sock` at 0600 elsewhere), every message carries the token in `~/.declick/daemon.json` (0600), and a `daemon.json` whose pid is gone counts as no daemon. `declick doctor` reports it. HTTP MCP adapters are untouched, and the guard, the local policy and the audit line stay on the client side of the socket.
+
 ## 0.5.1 (2026-09-03)
 
 The DashClaw guard call now matches what a current DashClaw (5.31) accepts. Found by running strict mode against a real instance, which answered 401 to every call.

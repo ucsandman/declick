@@ -168,6 +168,24 @@ declick defaults petstore --clear      # drop the file
 
 The `*` scope applies to every verb, a verb scope wins over `*`, and a flag typed on the command line wins over both. `meta.defaults` lists the keys a run took from the file, `declick describe <name>` prints them on a `defaults:` line, and `--no-defaults` or `DECLICK_DEFAULTS=off` ignores the file. A key the verb does not accept is exit 1 naming the file and the key, so a stale default is loud rather than silent.
 
+## Warm MCP servers
+
+A stdio MCP server is spawned per call, and the spawn is most of what the call costs: a real filesystem server measured 4.8 seconds, almost none of it the tool. `declick daemon start` keeps those servers alive between runs.
+
+```bash
+declick daemon start     # a detached local process, one per user
+declick daemon status    # {running, pid, started, servers:[{adapter, pid, calls, idleMs}]}
+declick daemon stop
+```
+
+Once it is up, every `declick run <mcp adapter> <verb>` connects to it first and reuses the running server instead of spawning one; the envelope says `meta.daemon: true` when it did. Nothing else changes: the verbs, the flags, the output contract, the local policy, the governance guard and the audit line are all still on the client side of the socket, so the daemon is a cache and never a way around them. `declick compose` runs its steps as ordinary `declick run` child processes, so a chain of MCP steps gets the warm servers with no extra work.
+
+Servers are pooled per adapter and per what the adapter was spawned from, so rebuilding one with a different command gets a fresh server. A server nobody has called for `DECLICK_DAEMON_IDLE_MS` (default 600000) is dropped, and a daemon with no servers for the same window exits, so an idle machine ends up with no declick processes on it.
+
+If the daemon is not running, or was killed, `declick run` spawns its own server exactly as before and says nothing: a 300 ms connect attempt is the whole cost of asking. HTTP MCP adapters never touch it, having no process to keep warm.
+
+The endpoint is per user and `~/.declick/daemon.json` holds `{pid, endpoint, token, started}`. Every message carries that token and a wrong one is refused, which is what keeps the endpoint yours on Windows, where the pipe name is per user but a file mode means nothing; on macOS and Linux the socket and the file are both chmod 0600 as well. A `daemon.json` whose pid is gone is treated as no daemon at all.
+
 ## Works with any agent
 
 declick is a command line tool, so the integration is the shell. `declick add` writes the adapter's `SKILL.md` into every agent skills directory that exists on the machine. `~/.claude/skills` (Claude Code) is always written; `~/.codex/skills` (Codex), `~/.hermes/skills` (Hermes), `~/.openclaw/skills` (OpenClaw) and `~/.agents/skills` are written when the directory is already there. It never creates a directory for an agent you do not have, and `DECLICK_SKILLS` names any other list, comma separated. An agent without a skills directory reads `declick describe <name>`, or you paste `declick skill <name> --print` into its AGENTS.md or system prompt. `declick setup` writes more, and only to the clients it finds: Claude Code gets the rules block and the PreToolUse hook, Codex and `~/.agents` get the rules block only, and every other agent gets adapters and skills the way `add` always wrote them.
@@ -269,6 +287,7 @@ An agent with only a shell can do all of this. Every command takes `--json` and 
 | Command | What it gives you |
 |---|---|
 | `declick doctor` | node version, home, whether `~/.declick/bin` is on PATH (with the fix), skill dirs, vault, deskclaw presence and arm state, `claude` on PATH, governance config, engine readiness, and integration state (has `setup` run, which clients have the rules block and hook, how many MCP servers are adapted). `blocking` and `warnings` are separate lists and `healthy` is true only when `blocking` is empty, so a fresh home with nothing on PATH is healthy with one warning. Exit 1 only when node is too old. |
+| `declick daemon [start\|stop\|status]` | the warm MCP server pool. `start` launches a detached per-user daemon, `status` is `{running, pid, started, servers:[{adapter, pid, calls, idleMs}]}` and exit 2 when nothing is running, `stop` shuts it down and waits for it to go. With no action it reports status. |
 | `declick setup [--dry-run] [--no-adopt] [--no-rules] [--no-hook] [--no-path] [--revert] [--keep-adapters]` | wire declick into the agents on this machine: PATH, adapters for their MCP servers, a rules block, the Claude Code hook; `--revert` undoes it byte for byte; `--dry-run` previews with no writes |
 | `declick uninstall [--yes] [--keep-adapters]` | revert setup if it ran, then delete `~/.declick` entirely and print the `npm rm -g declick` line; refuses without `--yes`; `--dry-run` lists what would go |
 | `declick list` | every adapter: engine, source, verb names, auth keys, last run, last error. A corrupt manifest is one broken row, not a crash. |

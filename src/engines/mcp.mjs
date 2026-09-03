@@ -3,6 +3,7 @@ import { EXIT, RESERVED, camel, rowsPropertyOf } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
 import { assertName } from '../manifest.mjs';
 import { mcpClient } from '../mcp-client.mjs';
+import { callViaDaemon } from '../daemon.mjs';
 
 const kebab = s => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 const upperSnake = s => s.replace(/[^a-zA-Z0-9]+/g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
@@ -200,6 +201,13 @@ export async function execute(m, verbName, positional, flags = {}, { client, tim
   catch (e) { return { ok: false, exit: e.exit ?? EXIT.ERROR, error: e.message }; }
   const server = cfg.transport === 'http' ? cfg.url : [cfg.command, ...(cfg.args || [])].join(' ');
   if (flags.dryRun) return { ok: true, data: { transport: cfg.transport, server, tool: v.mcp.tool, arguments: args } };
+  // A warm daemon already has this server running, so a hit skips the spawn that is most of what an MCP call
+  // costs. No daemon, or one that never reached the tool, and the run spawns its own server exactly as before.
+  if (!client && cfg.transport === 'stdio') {
+    const hit = await callViaDaemon({ adapter: m.name, verb: v.name, tool: v.mcp.tool, args });
+    if (hit?.result !== undefined) return { ...result(hit.result), meta: { daemon: true } };
+    if (hit?.error && !hit.spawn) return { ok: false, exit: EXIT.ERROR, error: hit.error, meta: { daemon: true } };
+  }
   const c = client || mcpClient({ ...cfg, bearer, timeout });
   try {
     await c.connect();
