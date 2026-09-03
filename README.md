@@ -2,6 +2,8 @@
 
 Stop writing a parser for every tool your agent calls. declick reads a source once and writes named verbs that return one envelope with five exit codes. Nine engines, zero runtime dependencies, Node 24.
 
+![declick compiling the petstore spec, describing it, making a real call, and naming the missing key on exit 4](docs/demo.gif)
+
 ## Why
 
 Every time an agent reads a screenshot or a DOM to find a button, it pays in tokens and latency, and it pays again in the next session because nothing was learned. declick compiles the surface once and replays it deterministically forever: a spec, an app window, or a server becomes a set of named verbs with stable output. The point is not the conversion, it is that every generated CLI honors the same output contract no matter which engine produced it, and that declick itself honors it too, so an agent never has to leave the shell.
@@ -28,12 +30,24 @@ Requires Node 24 or newer.
 npm i -g declick
 declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore
 declick run petstore describe
+declick run petstore get-user-by-name user1 --fields username,email
 declick run petstore get-pet-by-id 7 --dry-run
 ```
+
+The fourth line is a real call: petstore's user endpoints declare no auth, so the envelope comes back with the row. `get-pet-by-id` declares an API key in the spec, so without `PETSTORE_API_KEY` set it exits 4 and names the key; `--dry-run` shows the request it would send instead.
 
 `declick add` writes three things: `~/.declick/petstore/manifest.json` (the compiled surface), `~/.declick/bin/petstore.cmd` plus a bash twin (a two line launcher), and `~/.claude/skills/petstore/SKILL.md` so agents discover it without being told. It also writes `~/.claude/skills/declick/SKILL.md`, declick's own skill, so an agent that finds one adapter knows how to build the next.
 
 `declick run <name> <verb>` works everywhere with no setup. Once `~/.declick/bin` is on PATH (`declick path --install` does it for new shells, `declick doctor` tells you whether it is), the short form `petstore get-pet-by-id 7` works too. Both forms have identical output and exit codes.
+
+## Compared with
+
+- **Runtime REST clients such as restish** are built for a person at a keyboard: shorthand syntax, colored output, one API configured at a time. declick is built for a program: one envelope, five exit codes, a `describe` an agent can afford to read, and the same shape for a database or a window as for an API.
+- **SDK generators such as openapi-generator and Speakeasy** produce a typed client library per language. The CLI on top, the output shaping and the exit codes are still yours to write. declick skips the library and writes the CLI.
+- **MCP** gives an agent tools over a protocol, which needs an MCP client in the loop. The mcp engine compiles a server into shell verbs, so an agent with only a shell uses it, and `--fields` and `--limit` cut the result before it reaches the context window.
+- **Screenshot and DOM agents** find the button again every session and pay tokens each time. The web and desktop engines record the path once and replay it, and a miss returns the elements that are there, not a screenshot.
+
+The part none of those share is that all nine engines, and declick itself, honor the same contract, so an agent learns the output shape once.
 
 ## The output contract
 
