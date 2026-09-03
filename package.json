@@ -1,6 +1,6 @@
 {
   "name": "declick",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Compile an API, an MCP server, or a database into a CLI your agent can run. Nine engines, one output contract.",
   "type": "module",
   "bin": {
@@ -11,6 +11,7 @@
   },
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
+    "qa": "bash scripts/qa-real-specs.sh",
     "test:live": "node --test \"test/live/*.test.mjs\"",
     "ui": "node bin/declick.mjs ui",
     "prepublishOnly": "npm test"

@@ -15,4 +15,6 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: npm test
+      # Six public specs, real calls, the auth path and the Node guard, from this checkout: no release ships blind again.
+      - run: npm run qa
       - run: npm publish --provenance --access public

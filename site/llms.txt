@@ -48,6 +48,6 @@
 - author, repair and add --goal: need the Claude Code CLI on PATH, default timeout 300000 ms.
 - mcp and graphql against a private server read a bearer from <NAME>_TOKEN.
 - declick ui listens on 127.0.0.1 only.
-- Not shipped in 0.3.1: chaining verbs, batch --each, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, per-adapter flag defaults.
+- Not shipped in 0.3.2: chaining verbs, batch --each, local policy files without a DashClaw server, a macOS or Linux desktop backend, SSE streaming, per-adapter flag defaults.
 
-- [Control matrix](https://declick.dev/controls): the fourteen controls in 0.3.1 and the command that verifies each one
+- [Control matrix](https://declick.dev/controls): the fourteen controls in 0.3.2 and the command that verifies each one

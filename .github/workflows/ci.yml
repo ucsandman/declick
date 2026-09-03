@@ -3,8 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 jobs:
   test:
+    timeout-minutes: 10
     strategy:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
@@ -15,3 +17,18 @@ jobs:
         with:
           node-version: 24
       - run: npm test
+  # The release gate the suite cannot replace: six public specs from their live URLs, real keyless calls, the auth
+  # path, PATH install in a login shell, the Node guard. Live APIs can flake, so it runs on demand, not on every push.
+  qa:
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm run qa

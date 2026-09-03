@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 (2026-09-03)
+
+- A reader that closes the pipe early (`declick add big-spec | head`) gets a clean exit instead of an EPIPE stack trace, from both entry points.
+- `npm run qa` (`scripts/qa-real-specs.sh`) is the release gate: six public specs compiled from their live URLs, real keyless calls, the auth path, `path --install` in a fresh login shell, the web page refusal and the Node guard, from the checkout or, with `QA_FROM_NPM=1`, from the published package. The 0.3.0 release shipped without it and none of those specs compiled.
+- CI jobs time out after ten minutes, so an open handle left by a failed test cannot hang a run.
+
 ## 0.3.1 (2026-09-03)
 
 Pre-launch QA of the published 0.3.0 on Windows and Linux, against Stripe, GitHub, Slack, Twilio, Openverse, api.weather.gov, apis.guru, two GraphQL endpoints, two reference MCP servers and a SQLite file. Every fix below came out of that pass and carries a regression test; 464 tests pass.
