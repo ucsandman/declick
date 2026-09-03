@@ -1,6 +1,8 @@
 # declick
 
-Stop writing a parser for every tool your agent calls. declick reads a source once and writes named verbs that return one envelope with five exit codes. Nine engines, zero runtime dependencies, Node 24.
+Stop writing a parser for every tool your agent calls. declick reads a source once and writes named verbs that return one envelope with five exit codes. Ten engines, zero runtime dependencies, Node 24.
+
+The saving is measured, not claimed: against nine real MCP servers (258 tools), the raw tool listing an MCP client puts in context is 236,818 bytes and `declick describe` is 58,309, a 4.1x reduction. `node scripts/bench-tokens.mjs` reproduces it on your own adapters; the method and the caveats are in [docs/bench.md](docs/bench.md).
 
 [![npm](https://img.shields.io/npm/v/declick.svg)](https://www.npmjs.com/package/declick)
 [![ci](https://github.com/ucsandman/declick/actions/workflows/ci.yml/badge.svg)](https://github.com/ucsandman/declick/actions/workflows/ci.yml)

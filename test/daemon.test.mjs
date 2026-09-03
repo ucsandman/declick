@@ -90,7 +90,8 @@ test('a started daemon answers every run from one pooled server, and stopping it
 
 test('an answer bigger than one socket chunk arrives whole, and a second adapter is a second pooled server', () => {
   assert.equal(cli(['daemon', 'start']).status, 0);
-  const r = J(runVerb(['blobs', 'blob', '400000', '--json']));
+  // --max-bytes 0: the default ceiling on data would replace the blob; this test is about the socket, not the cap.
+  const r = J(runVerb(['blobs', 'blob', '400000', '--json', '--max-bytes', '0']));
   assert.equal(r.ok, true, r.error);
   assert.equal(r.meta.daemon, true);
   assert.equal(r.data.blob.length, 400000, 'the answer was cut at a chunk boundary');
