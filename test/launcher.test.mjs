@@ -208,11 +208,11 @@ test('profileFile falls back to ~/.profile for a login shell that is neither zsh
 // ~/.bash_profile only when that file already exists there, else falls back to ~/.profile like
 // every other posix shell -- so assert the disjunction, mirroring the implementation, not a single
 // hardcoded answer that would be right on some runners and wrong on others.
-test('profileFile on a darwin bash login shell matches its own existsSync(~/.bash_profile) check', { skip: WIN && 'posix-only' }, () => {
+test('profileFile for a bash login shell is the first of ~/.bash_profile, ~/.bash_login, ~/.profile that exists, on every platform', { skip: WIN && 'posix-only' }, () => {
   const saved = process.env.SHELL;
   try {
     process.env.SHELL = '/bin/bash';
-    const want = process.platform === 'darwin' && existsSync(join(homedir(), '.bash_profile')) ? join(homedir(), '.bash_profile') : join(homedir(), '.profile');
+    const want = ['.bash_profile', '.bash_login'].map(x => join(homedir(), x)).find(p => existsSync(p)) || join(homedir(), '.profile');
     assert.equal(profileFile(), want);
   } finally {
     process.env.SHELL = saved;
