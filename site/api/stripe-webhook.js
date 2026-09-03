@@ -54,7 +54,11 @@ async function handler(req, res) {
   const session = event.data.object;
   if (session.payment_status !== 'paid' && session.status !== 'complete') { res.statusCode = 200; return res.end('not paid'); }
   const items = (await stripe(`/checkout/sessions/${session.id}/line_items?limit=10&expand[]=data.price`, STRIPE_SECRET_KEY)).data;
-  const item = items.find(i => TIERS[i.price?.lookup_key]) || items[0];
+  const item = items.find(i => TIERS[i.price?.lookup_key]);
+  if (!item && !session.metadata?.declick) {
+    console.log(`declick webhook: ignoring session ${session.id}, not a declick price`);
+    res.statusCode = 200; return res.end('ignored');
+  }
   const tier = TIERS[item?.price?.lookup_key] || (session.metadata?.declick === 'support-yearly' ? 'support' : 'team');
   const seats = tier === 'support' ? 1 : Number(item?.quantity || 1);
   const email = session.customer_details?.email || session.customer_email;
