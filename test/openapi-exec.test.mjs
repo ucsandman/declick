@@ -425,3 +425,75 @@ test('a live call masks a query api key, curl reproduces the multipart body, and
     assert.equal(noTimeout.exit, 1); assert.equal(noTimeout.error, '--timeout needs a value');
   } finally { delete process.env[key]; srv.closeAllConnections(); await new Promise(r => srv.close(r)); }
 });
+
+test('a text/event-stream response is read incrementally: a complete stream parses fully, a stalled one truncates at the timeout budget with what already arrived, JSON and string payloads and event/id fields survive, and a non-SSE response on the same server is untouched', async () => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    const path = new URL(req.url, 'http://x').pathname;
+    if (path === '/stream-end') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('data: one\n\ndata: two\n\ndata: three\n\n');
+      return res.end();
+    }
+    if (path === '/stream-types') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write('event: greeting\nid: 1\ndata: {"hello":"world"}\n\nevent: text\ndata: plain string\n\n');
+      return res.end();
+    }
+    if (path === '/stream-hang') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      // Two whole events plus an unterminated third (no trailing blank line, connection never ends): the
+      // third must never surface as a truncated event, only the timeout truncation the client sees matters.
+      res.write('data: one\n\ndata: two\n\ndata: {"partial":');
+      return;
+    }
+    if (path === '/plain') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ id: 'ok' }));
+    }
+    res.writeHead(404, { 'content-type': 'application/json' }); res.end('{}');
+  });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const spec = join(tmp, 'sse.json');
+  writeFileSync(spec, JSON.stringify({ openapi: '3.0.0', info: { title: 'SSE' }, servers: [{ url: base }], paths: {
+    '/stream-end': { get: { operationId: 'streamEnd', summary: 'Stream end' } },
+    '/stream-types': { get: { operationId: 'streamTypes', summary: 'Stream types' } },
+    '/stream-hang': { get: { operationId: 'streamHang', summary: 'Stream hang' } },
+    '/plain': { get: { operationId: 'plain', summary: 'Plain' } },
+  } }));
+  const sm = await compile(spec, { name: 'sse' });
+  try {
+    const a = await execute(sm, 'stream-end', [], {});
+    assert.equal(a.ok, true, a.error);
+    assert.deepEqual(a.data, [{ data: 'one' }, { data: 'two' }, { data: 'three' }]);
+    const { ms: aMs, ...aStream } = a.meta.stream;
+    assert.equal(typeof aMs, 'number');
+    assert.deepEqual(aStream, { events: 3, complete: true, truncatedByTimeout: false });
+    assert.equal(a.meta.truncated, undefined);
+
+    const c = await execute(sm, 'stream-types', [], {});
+    assert.equal(c.ok, true, c.error);
+    assert.deepEqual(c.data, [
+      { event: 'greeting', id: '1', data: { hello: 'world' } },
+      { event: 'text', data: 'plain string' },
+    ]);
+
+    // 2s, not 500ms: under a full parallel suite the connect itself can eat 500ms, and a timeout before the
+    // headers arrive is the plain request path, not the partial-stream path this test is about.
+    const b = await execute(sm, 'stream-hang', [], { timeout: '2000' });
+    assert.equal(b.ok, true, b.error);
+    assert.equal(b.exit, undefined);
+    assert.deepEqual(b.data, [{ data: 'one' }, { data: 'two' }]);
+    const { ms: bMs, ...bStream } = b.meta.stream;
+    assert.equal(typeof bMs, 'number');
+    assert.ok(bMs < 6000, `stream read took ${bMs}ms`);
+    assert.deepEqual(bStream, { events: 2, complete: false, truncatedByTimeout: true });
+    assert.equal(b.meta.truncated, true);
+
+    const d = await execute(sm, 'plain', [], {});
+    assert.equal(d.ok, true, d.error);
+    assert.deepEqual(d.data, { id: 'ok' });
+    assert.equal(d.meta.stream, undefined);
+  } finally { srv.closeAllConnections(); await new Promise(r => srv.close(r)); }
+});

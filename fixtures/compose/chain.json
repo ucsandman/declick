@@ -1,0 +1,43 @@
+{
+  "compose": true,
+  "verbs": [
+    {
+      "name": "pet-family",
+      "description": "the pets sharing a pet id's status",
+      "args": [{ "name": "id", "description": "pet id" }],
+      "steps": [
+        { "run": "petstore get-pet-by-id {id}", "as": "pet" },
+        { "run": "petstore find-pets-by-status --status {pet.status}", "as": "family" }
+      ],
+      "returns": "family"
+    },
+    {
+      "name": "pet-name",
+      "description": "just the name behind a pet id",
+      "args": [{ "name": "id", "description": "pet id" }],
+      "steps": [{ "run": "petstore get-pet-by-id {id}", "as": "pet" }],
+      "returns": "{pet.name}"
+    },
+    {
+      "name": "pet-or-available",
+      "description": "one pet if it is there, otherwise every available pet",
+      "args": [{ "name": "id", "description": "pet id" }],
+      "steps": [
+        { "run": "petstore get-pet-by-id {id}", "as": "pet", "optional": true },
+        { "run": "petstore find-pets-by-status --status available", "as": "available" }
+      ],
+      "returns": "available"
+    },
+    {
+      "name": "copy-pet",
+      "description": "look one pet up and add a copy of it",
+      "args": [{ "name": "id", "description": "pet id" }],
+      "flags": [{ "name": "suffix", "description": "what to append to the copy's name" }],
+      "steps": [
+        { "run": "petstore get-pet-by-id {id}", "as": "pet" },
+        { "run": ["petstore", "add-pet", "--name", "{pet.name} {suffix}", "--status", "{pet.status}"], "as": "copy" }
+      ],
+      "returns": "copy"
+    }
+  ]
+}

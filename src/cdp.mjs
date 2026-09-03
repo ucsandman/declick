@@ -149,6 +149,13 @@ const TREE = `(function (sel, limit) {
   return out.slice(0, limit);
 })`;
 
+// innerText already skips <script>/<style>/hidden nodes, which is exactly "what a human would read".
+const TEXT = `(function (sel) {
+  var root = sel ? document.querySelector(sel) : document.body;
+  if (!root) return null;
+  return String(root.innerText || root.textContent || '');
+})`;
+
 const KEYS = {
   Enter: { keyCode: 13, key: 'Enter', code: 'Enter', text: '\r' },
   Tab: { keyCode: 9, key: 'Tab', code: 'Tab' },
@@ -238,6 +245,7 @@ class Page {
   readAll(css, fields) { return this.evaluate(`${ROWS}(${q(css)}, ${fields ? q(fields) : 'null'})`); }
   candidates(limit = 10) { return this.evaluate(`${CANDIDATES}(${Number(limit) || 10})`); }
   tree(selector, limit = 60) { return this.evaluate(`${TREE}(${selector ? q(selector) : 'null'}, ${Number(limit) || 60})`); }
+  text(selector) { return this.evaluate(`${TEXT}(${selector ? q(selector) : 'null'})`); }
   url() { return this.evaluate('location.href'); }
   title() { return this.evaluate('document.title'); }
 

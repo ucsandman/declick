@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.DECLICK_HOME = mkdtempSync(join(tmpdir(), 'declick-web-'));
-const { compile, execute, validateWebRecipe, snapshot } = await import('../src/engines/web.mjs');
+const { compile, execute, validateWebRecipe, snapshot, pageText } = await import('../src/engines/web.mjs');
 const { findChrome, launch } = await import('../src/cdp.mjs');
 const { shape } = await import('../src/output.mjs');
 const { describe } = await import('../src/describe.mjs');
@@ -130,4 +130,53 @@ test('snapshot returns a compact tree with the interactive elements first', { sk
   assert.ok(s.nodes[0].interactive, JSON.stringify(s.nodes[0]));
   assert.ok(s.nodes.some(n => n.role === 'link' && n.href === '/docs.html'), JSON.stringify(s.nodes));
   assert.ok(s.nodes.some(n => n.role === 'button' && n.name === 'Add one'), JSON.stringify(s.nodes));
+});
+
+test('snapshot --grep matches role:name or href and returns only matching nodes', { skip }, async () => {
+  const s = await snapshot(site, { grep: /add one/i, limit: 12 });
+  assert.ok(s.nodes.length > 0, JSON.stringify(s.nodes));
+  assert.ok(s.nodes.every(n => /add one/i.test(`${n.role}:${n.name}`) || (n.href && /add one/i.test(n.href))), JSON.stringify(s.nodes));
+  const byHref = await snapshot(site, { grep: /docs\.html/i, limit: 12 });
+  assert.ok(byHref.nodes.length > 0, JSON.stringify(byHref.nodes));
+  assert.ok(byHref.nodes.every(n => n.href && /docs\.html/i.test(n.href)), JSON.stringify(byHref.nodes));
+});
+
+test('snapshot --grep with no match is NOT_FOUND', { skip }, async () => {
+  await assert.rejects(snapshot(site, { grep: /zzzznomatch/i }), e => {
+    assert.equal(e.exit, 2);
+    assert.match(e.message, /no element matches \/zzzznomatch\/ on/);
+    return true;
+  });
+});
+
+test('pageText returns numbered non-empty lines from the fixture', { skip }, async () => {
+  const p = await pageText(site, {});
+  assert.equal(p.title, 'Declick Web Fixture');
+  assert.equal(p.url, site);
+  assert.ok(p.lines.every(l => l.text.trim() === l.text && l.text.length > 0), JSON.stringify(p.lines));
+  assert.deepEqual(p.lines.map(l => l.n), p.lines.map((_, i) => i + 1));
+  assert.deepEqual(p.lines[0], { n: 1, text: 'Declick Web Fixture' });
+  assert.ok(p.lines.some(l => l.text === 'Add one'), JSON.stringify(p.lines));
+});
+
+test('pageText --grep filters lines and keeps the n from the full text', { skip }, async () => {
+  const full = await pageText(site, {});
+  const wanted = full.lines.find(l => l.text === 'Add one');
+  const filtered = await pageText(site, { grep: /add one/i });
+  assert.deepEqual(filtered.lines, [wanted]);
+});
+
+test('pageText --grep with no match is NOT_FOUND', { skip }, async () => {
+  await assert.rejects(pageText(site, { grep: /zzzznomatch/i }), e => {
+    assert.equal(e.exit, 2);
+    assert.match(e.message, /no line matches \/zzzznomatch\/ on/);
+    return true;
+  });
+});
+
+test('pageText --selector scopes the text to that element', { skip }, async () => {
+  const p = await pageText(site, { selector: '#items' });
+  assert.equal(p.lines.length, 3);
+  assert.deepEqual(p.lines.map(l => l.text), ['Alpha10details', 'Bravo20details', 'Charlie30details']);
+  assert.deepEqual(p.lines.map(l => l.n), [1, 2, 3]);
 });

@@ -35,6 +35,7 @@ export function lint(m) {
     if (v.recipe) for (const e of (m.engine === 'web' ? validateWebRecipe : validateStoredRecipe)({ ...v.recipe, args: v.args })) errs.push(`${v.name}: ${e}`);
     if (m.engine === 'cli' && !v.cli?.argv?.length) errs.push(`${v.name}: cli.argv is missing; rebuild with declick build ${m.name}`);
     if (m.engine === 'sqlite' && !v.sqlite) errs.push(`${v.name}: sqlite table info is missing; rebuild with declick build ${m.name}`);
+    if (m.engine === 'compose' && !(v.compose?.steps?.length && v.compose.steps.every(s => Array.isArray(s?.argv) && s.adapter && s.verb))) errs.push(`${v.name}: compose steps are missing or incomplete; rebuild with declick build ${m.name}`);
   }
   return errs;
 }

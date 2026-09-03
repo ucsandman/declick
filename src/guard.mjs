@@ -1,6 +1,8 @@
 // One governance gate for every real mutating action: bin/run.mjs, src/ui.mjs and the authoring replay call it.
 // Env: DASHCLAW_API_KEY (off when unset), DASHCLAW_URL (required once the key is set, https unless loopback),
 // DASHCLAW_TIMEOUT_MS (3000), DECLICK_GUARD=open turns a guard failure back into a warning.
+// The local policy file (src/policy.mjs, DECLICK_POLICY) decides first, so a block holds with no key and no network.
+import { policyDecision } from './policy.mjs';
 const RISK = { delete: 70, put: 55, patch: 55, post: 45, desktop: 60 };
 const LOOPBACK = /^(127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|\[::1\]|::1)$/;
 // Mirrors the scanner in manifest.mjs: an argument that looks like a credential never reaches the guard log.
@@ -44,16 +46,30 @@ const MUTATES = new Set(['click', 'type', 'key']);
 // The floor a verb's mutating flag may not go below. null when the engine gives nothing to derive from,
 // so an imported manifest can still be trusted for engines that declare their own semantics.
 export function derivedMutating(m, v) {
+  // A chain is as mutating as the verbs it runs; compile resolved that from the target manifests and wrote it
+  // per step, so a hand-edited composite cannot claim to be read-only. Steps missing entirely is the floor.
+  if (m?.engine === 'compose') { const steps = v?.compose?.steps; return !Array.isArray(steps) || steps.some(s => !!s.mutating); }
   if (READONLY[m?.engine]) return Array.isArray(v?.recipe?.steps) && v.recipe.steps.some(s => MUTATES.has(stepKey(s)));
   if (v?.http?.method) return !['get', 'head'].includes(String(v.http.method).toLowerCase());
   return null;
 }
 
-// Returns { allowed, decision, reason, approvalId? }. Never throws.
+// Returns { allowed, decision, reason, source?, approvalId? }. Throws only for an invalid policy file, which
+// fails closed: the caller turns that into exit 1, because a policy nobody can read is not a policy.
 export async function guard({ tool, action, engine, method, target, args }) {
   const key = process.env.DASHCLAW_API_KEY;
   const strict = isStrict();
   const warn = msg => process.stderr.write(`warning: ${msg}\n`);
+  // The local floor runs first: it needs no key, no url and no request, so it holds when DashClaw is off. Every
+  // caller of this gate is a mutating action, which is what a rule's `mutating` field is matched against.
+  const local = policyDecision({ adapter: tool, verb: action, mutating: true });
+  if (local && local.decision !== 'allow') {
+    const reason = local.reason || `rule ${local.rule}`;
+    if (local.decision === 'block') return { allowed: false, decision: 'block', reason, source: 'policy' };
+    warn(`policy: ${reason}`);
+    // A warning is not a decision: with a key set, DashClaw still gets to say what happens.
+    if (!key) return { allowed: true, decision: 'warn', reason, source: 'policy' };
+  }
   // No key means the owner chose not to run DashClaw: that's a config, not a fault, so it stays silent on stderr.
   if (!key) return { allowed: true, decision: 'skipped', reason: 'no guard configured' };
   const fail = why => strict

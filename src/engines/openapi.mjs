@@ -435,6 +435,56 @@ const serializeForm = async form => {
 
 const statusExit = s => (s === 401 || s === 403 ? EXIT.AUTH : s === 404 ? EXIT.NOT_FOUND : EXIT.ERROR);
 
+// Server-Sent Events, per spec: blocks separated by a blank line, 'data:' lines joined with '\n', ':' comments
+// ignored. The final split segment is whatever came after the last blank line; on a clean end it is '' (drop it),
+// on a timed-out abort mid-event it is a half-arrived block (drop it too, same call) rather than a truncated event.
+function parseSSE(raw) {
+  const parts = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n\n');
+  parts.pop();
+  const events = [];
+  for (const block of parts) {
+    if (!block.trim()) continue;
+    let event, id; const dataLines = [];
+    for (const line of block.split('\n')) {
+      if (!line || line.startsWith(':')) continue;
+      const i = line.indexOf(':');
+      const field = i < 0 ? line : line.slice(0, i);
+      const value = i < 0 ? '' : line.slice(i + 1).replace(/^ /, '');
+      if (field === 'data') dataLines.push(value);
+      else if (field === 'event') event = value;
+      else if (field === 'id') id = value;
+    }
+    if (!dataLines.length) continue;
+    const raw = dataLines.join('\n');
+    let data = raw;
+    try { data = JSON.parse(raw); } catch { /* not JSON, keep the raw string */ }
+    events.push({ ...(event !== undefined ? { event } : {}), ...(id !== undefined ? { id } : {}), data });
+  }
+  return events;
+}
+
+// The response's own AbortSignal.timeout (armed in send()) still governs the body: reading past the budget
+// rejects reader.read() with a TimeoutError, which is caught here instead of thrown, so what already arrived
+// survives. Buffering the whole request in memory is the same tradeoff the buffered path already makes.
+async function readEventStream(res) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const start = Date.now();
+  let raw = '', complete = false, timedOut = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) { complete = true; break; }
+      raw += decoder.decode(value, { stream: true });
+    }
+  } catch (e) {
+    if (e.name !== 'TimeoutError') throw e;
+    timedOut = true;
+  }
+  raw += decoder.decode();
+  return { raw, complete, timedOut, ms: Date.now() - start };
+}
+
 export async function execute(m, verb, positional, flags = {}, { fetch: doFetch = globalThis.fetch } = {}) {
   const v = m.verbs.find(x => x.name === verb);
   if (!v) return { ok: false, exit: EXIT.NOT_FOUND, error: `unknown verb ${verb}; run: declick describe ${m.name}` };
@@ -473,6 +523,16 @@ export async function execute(m, verb, positional, flags = {}, { fetch: doFetch 
   }
 
   const ct = res.headers.get('content-type') || '';
+  // A stream is read incrementally and never held to res.text()'s all-or-nothing wait: what arrived before
+  // the timeout budget ran out is the honest answer, not a thrown error.
+  if (/^text\/event-stream$/i.test(ct.split(';')[0].trim())) {
+    const { raw, complete, timedOut, ms: streamMs } = await readEventStream(res);
+    const data = parseSSE(raw);
+    meta.stream = { events: data.length, complete, truncatedByTimeout: timedOut, ms: streamMs };
+    if (timedOut) meta.truncated = true;
+    if (!res.ok) return { ok: false, exit: statusExit(res.status), error: `${method} ${url.pathname} -> ${res.status}`, data, meta };
+    return { ok: true, data, meta };
+  }
   if (!TEXTISH.test(ct.split(';')[0])) {
     const bytes = Buffer.from(await res.arrayBuffer());
     if (!res.ok) return { ok: false, exit: statusExit(res.status), error: `${method} ${url.pathname} -> ${res.status}`, meta };

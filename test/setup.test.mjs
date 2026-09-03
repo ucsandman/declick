@@ -5,7 +5,8 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, delimiter } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { gatherMcpSources, parseCodexToml } from '../src/setup.mjs';
 
 const abs = p => resolve(p);
@@ -23,6 +24,40 @@ const run = (args, env) => spawnSync(process.execPath, ['bin/declick.mjs', ...ar
 // would never reach the server this same process is holding a synchronous wait on); spawn instead, async.
 const runAsync = (args, env) => new Promise(res => { const c = spawn(process.execPath, ['bin/declick.mjs', ...args], { env }); let stdout = '', stderr = ''; c.stdout.on('data', d => stdout += d); c.stderr.on('data', d => stderr += d); c.on('close', status => res({ status, stdout, stderr })); });
 const J = r => { try { return JSON.parse(r.stdout); } catch { throw new Error(`not json (exit ${r.status}): ${r.stdout}\n${r.stderr}`); } };
+
+// Runs runSetup() directly, in its own process, with a synthetic `build` spliced in as source text: the
+// CLI's own build() is wired to the real engines and can't be told to throw a crafted AUTH or name-collision
+// error, and HOME in src/manifest.mjs is a module-level constant fixed at import time from DECLICK_HOME, so
+// only a fresh process picks up a fresh one (the same reason every other test here spawns bin/declick.mjs).
+// buildSrc must define `async function build(source, flags, dry) { ... }`; EXIT, writeLauncher and binDir
+// are already in scope for it. Captures stderr the way test/openapi.test.mjs does, but inside the child.
+function runWithFakeBuild(s, buildSrc, flags = {}, extraEnv = {}) {
+  const setupUrl = pathToFileURL(abs('src/setup.mjs')).href;
+  const launcherUrl = pathToFileURL(abs('src/launcher.mjs')).href;
+  const outputUrl = pathToFileURL(abs('src/output.mjs')).href;
+  const script = [
+    `import { runSetup } from '${setupUrl}';`,
+    `import { writeLauncher, binDir } from '${launcherUrl}';`,
+    `import { EXIT } from '${outputUrl}';`,
+    buildSrc,
+    `const seen = [];`,
+    `const realWrite = process.stderr.write.bind(process.stderr);`,
+    `process.stderr.write = (s) => { seen.push(String(s)); return true; };`,
+    `let result = null, err = null;`,
+    `try { result = await runSetup({ flags: ${JSON.stringify(flags)}, build, clientHome: process.env.DECLICK_CLIENT_HOME }); }`,
+    `catch (e) { err = e.message; }`,
+    `finally { process.stderr.write = realWrite; }`,
+    `const pathHasBin = (process.env.PATH || '').split(${JSON.stringify(delimiter)}).includes(binDir());`,
+    `process.stdout.write(JSON.stringify({ result, err, stderr: seen.join(''), pathHasBin }));`,
+  ].join('\n');
+  const dir = mkdtempSync(join(tmpdir(), 'declick-fake-build-'));
+  const scriptPath = join(dir, 'run.mjs');
+  writeFileSync(scriptPath, script);
+  const r = spawnSync(process.execPath, [scriptPath], { env: envFor(s, extraEnv), encoding: 'utf8', timeout: 30000 });
+  rmSync(dir, { recursive: true, force: true });
+  let json = null; try { json = JSON.parse(r.stdout); } catch { /* r.json stays null; assertions below print r.stderr */ }
+  return { ...r, json };
+}
 
 // A recursive listing of relative paths and content hashes, so "wrote nothing" and "byte-identical" can be
 // asserted against the whole tree instead of guessing which files matter.
@@ -264,4 +299,83 @@ test('setup --no-adopt --no-rules --no-hook: the PATH edit writes to DECLICK_PAT
   const restored = readFileSync(profile, 'utf8');
   assert.match(restored, /existing profile content/);
   assert.ok(!restored.includes('export PATH='), restored);
+});
+
+// --- Onboarding bug 1: adoption must never let build() overwrite an adapter someone else already built. ---
+test('setup: a pre-existing adapter at the fallback name survives adoption of a server whose plain name collides', () => {
+  const s = freshHomes();
+  mkdirSync(join(s.clientHome, '.claude'), { recursive: true });
+  writeFileSync(join(s.clientHome, '.claude.json'), JSON.stringify({ mcpServers: { widget: { command: 'node', args: ['widget-server.mjs'] } } }));
+  // widget-mcp already exists, built from a different source than the widget server's below.
+  mkdirSync(join(s.home, 'widget-mcp'), { recursive: true });
+  const otherManifest = JSON.stringify({ name: 'widget-mcp', source: 'mcp:node other-server.mjs' });
+  writeFileSync(join(s.home, 'widget-mcp', 'manifest.json'), otherManifest);
+  // A build that behaves like the real one: refuses the plain name (a PATH collision), and if let through
+  // for the fallback name, would happily overwrite whatever manifest already sits there -- exactly the
+  // dashclaw data loss this fix closes.
+  const buildSrc = `async function build(source, flags, dry) {
+    if (flags.name === 'widget') { const e = new Error('widget already resolves to C:/fake/widget.exe; pick another --name or pass --force'); e.exit = EXIT.ERROR; throw e; }
+    if (flags.name === 'widget-mcp' && !dry) {
+      const { mkdirSync, writeFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      const dir = join(process.env.DECLICK_HOME, flags.name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'manifest.json'), JSON.stringify({ name: flags.name, source }));
+      return {};
+    }
+    throw new Error('unexpected build for ' + flags.name);
+  }`;
+  const r = runWithFakeBuild(s, buildSrc, { noRules: true, noHook: true, noPath: true });
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.equal(r.json.err, null, r.json.err);
+  const d = r.json.result.data;
+  assert.deepEqual(d.adapters.built, []);
+  assert.equal(d.adapters.skipped.length, 1);
+  assert.equal(d.adapters.skipped[0].server, 'widget');
+  assert.match(d.adapters.skipped[0].why, /widget-mcp/);
+  assert.match(d.adapters.skipped[0].why, /other-server\.mjs/);
+  assert.equal(readFileSync(join(s.home, 'widget-mcp', 'manifest.json'), 'utf8'), otherManifest, 'the pre-existing adapter must not be overwritten');
+  const mapping = JSON.parse(readFileSync(join(s.home, 'hooks', 'servers.json'), 'utf8'));
+  assert.ok(!('widget' in mapping), 'a skipped server must not appear in the hook mapping');
+});
+
+// --- Onboarding bug 2: a second-attempt AUTH failure is reported like the first, not as a collision. ---
+test('setup: an AUTH failure on the fallback name gets the vault wording, not the collision wording', () => {
+  const s = freshHomes();
+  mkdirSync(join(s.clientHome, '.claude'), { recursive: true });
+  writeFileSync(join(s.clientHome, '.claude.json'), JSON.stringify({ mcpServers: { gizmo: { command: 'node', args: ['gizmo-server.mjs'] } } }));
+  const buildSrc = `async function build(source, flags, dry) {
+    if (flags.name === 'gizmo') { const e = new Error('gizmo already resolves to /usr/bin/gizmo; pick another --name or pass --force'); e.exit = EXIT.ERROR; throw e; }
+    if (flags.name === 'gizmo-mcp') { const e = new Error('missing GIZMO_MCP_TOKEN; set it in the vault'); e.exit = EXIT.AUTH; throw e; }
+    throw new Error('unexpected build for ' + flags.name);
+  }`;
+  const r = runWithFakeBuild(s, buildSrc, { noRules: true, noHook: true, noPath: true });
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.equal(r.json.err, null, r.json.err);
+  const d = r.json.result.data;
+  assert.deepEqual(d.adapters.built, []);
+  assert.equal(d.adapters.skipped.length, 1);
+  assert.equal(d.adapters.skipped[0].server, 'gizmo');
+  assert.match(d.adapters.skipped[0].why, /needs GIZMO_MCP_TOKEN in the vault/);
+  assert.ok(!/collide/.test(d.adapters.skipped[0].why), d.adapters.skipped[0].why);
+});
+
+// --- Onboarding bug 3: installPath's result reaches process.env.PATH, so writeLauncher never re-hints it. ---
+test('setup: the PATH edit lands in process.env.PATH before adoption, so no adapter prints its own PATH hint', () => {
+  const s = freshHomes();
+  mkdirSync(join(s.clientHome, '.claude'), { recursive: true });
+  writeFileSync(join(s.clientHome, '.claude.json'), JSON.stringify({ mcpServers: { gadget: { command: 'node', args: ['gadget-server.mjs'] } } }));
+  const profile = join(s.home, 'fake-profile');
+  writeFileSync(profile, '# existing profile content\n');
+  // A build that does what the real one does once compilation succeeds: write the launcher, which is the
+  // one call that checks onPath() and prints the per-adapter hint.
+  const buildSrc = `async function build(source, flags, dry) { if (!dry) writeLauncher(flags.name); return {}; }`;
+  const r = runWithFakeBuild(s, buildSrc, { noRules: true, noHook: true }, { DECLICK_PATH_PROFILE: profile });
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.equal(r.json.err, null, r.json.err);
+  const d = r.json.result.data;
+  assert.equal(d.path.added, true);
+  assert.deepEqual(d.adapters.built, ['gadget']);
+  assert.ok(r.json.pathHasBin, 'process.env.PATH should include the bin dir once installPath has run');
+  assert.ok(!r.json.stderr.includes('add to PATH once'), r.json.stderr);
 });

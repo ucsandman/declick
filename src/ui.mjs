@@ -9,6 +9,8 @@ import { guard } from './guard.mjs';
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'declick.mjs');
 const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
+// Same words the CLI uses for the same refusal: the local policy file and DashClaw are not the same governor.
+const refused = g => `blocked by ${g.source === 'policy' ? 'policy' : 'governance'}: ${g.reason}`;
 const HOST_RE = /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/;
 
 export function adapterRows() {
@@ -111,7 +113,7 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
         if (body.engine !== undefined && !KEBAB.test(body.engine)) return send(400, JSON.stringify({ ok: false, error: 'engine must be an engine name; see declick engines' }));
         if (body.goal && !allowAuthoring) return send(403, JSON.stringify({ ok: false, error: 'authoring is off; restart with: declick ui --allow-authoring' }));
         const g = await guard({ tool: 'declick-ui', action: 'add', engine: 'declick', target: String(body.source), args: { source: String(body.source), name: body.name } });
-        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: `blocked by governance: ${g.reason}`, decision: g.decision }));
+        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: refused(g), decision: g.decision }));
         const args = ['add', body.source];
         for (const [flag, key] of [['--name', 'name'], ['--engine', 'engine'], ['--goal', 'goal'], ['--verb', 'verb'], ['--recipes', 'recipes']]) if (body[key]) args.push(flag, body[key]);
         return send(200, JSON.stringify(runCli(args)));
@@ -119,7 +121,7 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
       if (req.method === 'POST' && (url.pathname === '/api/setup/setup' || url.pathname === '/api/setup/revert')) {
         const action = url.pathname.endsWith('revert') ? 'revert' : 'setup';
         const g = await guard({ tool: 'declick-ui', action, engine: 'declick', target: 'setup', args: {} });
-        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: `blocked by governance: ${g.reason}`, decision: g.decision }));
+        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: refused(g), decision: g.decision }));
         return send(200, JSON.stringify(runCli(action === 'revert' ? ['setup', '--revert'] : ['setup'])));
       }
       const m = req.method === 'POST' && /^\/api\/([a-z0-9-]+)\/(tree|build|repair|remove)$/.exec(url.pathname);
@@ -134,7 +136,7 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
         }
         if (action === 'repair' && !allowAuthoring) return send(403, JSON.stringify({ ok: false, error: 'authoring is off; restart with: declick ui --allow-authoring' }));
         const g = await guard({ tool: 'declick-ui', action, engine: 'declick', target: name, args: { adapter: name } });
-        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: `blocked by governance: ${g.reason}`, decision: g.decision }));
+        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: refused(g), decision: g.decision }));
         if (action === 'repair') {
           const le = readJson(join(manifestDir(name), 'last-error.json'));
           if (!le?.verb) return send(400, JSON.stringify({ ok: false, error: 'no recorded failure to repair' }));

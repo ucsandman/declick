@@ -15,7 +15,9 @@ import { author } from '../src/author.mjs';
 import { startUi, adapterRows } from '../src/ui.mjs';
 import { DESK } from '../src/engines/desktop.mjs';
 import { loadEnv, vaultPath, mintHint } from '../src/creds.mjs';
-import { guardUrl, isStrict } from '../src/guard.mjs';
+import { guardUrl, isStrict, derivedMutating } from '../src/guard.mjs';
+import { loadPolicy, policyDecision, policyPath, EXAMPLE_POLICY } from '../src/policy.mjs';
+import { defaultsPath, loadDefaults, saveDefaults, knownFlags, parseEntry, defaultsLines } from '../src/defaults.mjs';
 import { runSetup, runRevert, runUninstall, integrationStatus, clientHomeOf } from '../src/setup.mjs';
 
 // ESM evaluates every static import before this module's own body runs, and src/engines/index.mjs statically
@@ -60,6 +62,9 @@ const COMMANDS = [
   C('build', 'recompile an adapter from its recorded source', [P('name')],
     [F('verbs', 'string', 'only these verbs', 'a,b'), F('tag', 'string', 'only verbs carrying this tag', 't'), F('force', 'boolean', 'overwrite an existing launcher or SKILL.md')],
     { mutating: true, dryRun: true, examples: ['declick build petstore'] }),
+  C('compose', 'chain verbs from adapters you already have into one verb, or print a chain', [P('name')],
+    [F('steps', 'string', 'the chain file to compile, or - for stdin; without it, print the chain', 'file|-'), F('force', 'boolean', 'overwrite an existing launcher or SKILL.md')],
+    { mutating: true, dryRun: true, examples: ['declick compose ops --steps chain.json', 'declick compose ops'] }),
   C('describe', 'one adapter: verbs, args and returns, under 500 tokens', [P('name')],
     [F('full', 'boolean', 'add per-verb flags and the auth keys'), F('verb', 'string', 'only this verb', 'v'), F('grep', 'string', 'only verbs whose name or description matches', 'text'), F('offset', 'number', 'skip N verbs (pages with --limit)', 'N')],
     { examples: ['declick describe petstore --full', 'declick describe petstore --grep pet --limit 5', 'declick describe declick'] }),
@@ -99,13 +104,20 @@ const COMMANDS = [
     { mutating: true, dryRun: true,
       examples: ['declick desk windows', 'declick desk tree Calculator --interactive', 'declick desk read Calculator "Text:Display is*"', 'declick desk clipboard set "hi" --dry-run', 'declick desk arm 30'] }),
   C('web', 'a page as a tree of elements a recipe can click, instead of a screenshot', [P('action'), P('url')],
-    [F('selector', 'string', 'only inside this css selector', 'css')],
-    { examples: ['declick web tree https://example.com', 'declick web tree https://example.com --selector nav --limit 20'] }),
+    [F('selector', 'string', 'only inside this css selector', 'css'), F('grep', 'string', 'tree|text: only lines whose role:name, href or text matches', 're')],
+    { examples: ['declick web tree https://example.com', 'declick web tree https://example.com --grep nav', 'declick web text https://example.com --grep "example domain"'] }),
   C('ui', 'local page: every adapter, last run, add / build / repair / remove', [], [F('port', 'number', 'port to listen on (default 4870)', 'N'), F('open', 'boolean', 'open a browser at it'), F('allow-authoring', 'boolean', 'let the page repair a verb or add with a goal (runs Claude)')],
     { mutating: true, examples: ['declick ui --open'] }),
   C('audit', 'the run log: what ran, what governance decided, what failed', [],
     [F('adapter', 'string', 'only this adapter', 'n'), F('since', 'string', 'only after an ISO time or a duration like 10m, 2h', 't'), F('failed', 'boolean', 'only runs that did not exit 0')],
     { examples: ['declick audit --failed --limit 20', 'declick audit --adapter petstore --since 2h'] }),
+  C('policy', 'local rules that allow, warn or block a verb before it runs, with no service', [P('verb', false)],
+    [F('check', 'string', 'which rule wins for this adapter and the verb given', 'adapter'), F('example', 'boolean', 'print an example policy file instead', null, { bare: true })],
+    { examples: ['declick policy', 'declick policy --check petstore delete-pet', 'declick policy --example'] }),
+  C('defaults', 'flag defaults for an adapter: shown, set, unset or cleared, per verb or for all', [P('name')],
+    [F('verb', 'string', 'scope the edit to one verb instead of every verb', 'v'), F('set', 'string', 'set a default: k=v (repeatable)', 'k=v'),
+      F('unset', 'string', 'remove a default key (repeatable)', 'k'), F('clear', 'boolean', 'drop the scope, or the whole file when no --verb')],
+    { mutating: true, dryRun: true, examples: ['declick defaults petstore --set limit=20 --set fields=id,name', 'declick defaults petstore --verb find-pets-by-status --set status=sold', 'declick defaults petstore --clear'] }),
   C('commands', 'this table as data: every command, its flags and examples', [], [], { examples: ['declick commands --fields name,summary'] }),
   C('version', 'the declick and node versions', [], [], { examples: ['declick version'] }),
   C('help', 'the usage table, or one command row', [P('command', false)], [], { examples: ['declick help', 'declick help add'] }),
@@ -490,6 +502,25 @@ try {
       result = { ok: true, data: describeJson(m) }; text = describe(m); break;
     }
     case 'build': { const old = loadManifest(arg); const m = await build(old.source, { ...flags, name: arg, engine: old.engine }, dry); result = { ok: true, data: describeJson(m) }; text = describe(m); break; }
+    // Sugar over add: the same compile, with the name first because a chain is written for a name, not found at one.
+    case 'compose': {
+      if (flags.steps === undefined) {
+        const m = loadManifest(arg);
+        if (m.engine !== 'compose') fail(`${arg} is a ${m.engine} adapter, not a chain; run: declick describe ${arg}`);
+        result = { ok: true, data: { name: m.name, source: m.source, verbs: engines.compose.chain(m) } }; text = engines.compose.chainText(m); break;
+      }
+      if (flags.steps === true) fail('--steps needs a chain file, or - for stdin; e.g. declick compose ops --steps chain.json');
+      // Stdin has no path to record, and build recompiles from the recorded source: keep a copy the adapter owns.
+      const stdin = flags.steps === '-';
+      const dir = manifestDir(arg); const fresh = stdin && !existsSync(dir);
+      const source = stdin ? engines.compose.writeChain(dir, readFileSync(0, 'utf8')) : String(flags.steps);
+      try {
+        const m = await build(`compose:${source}`, { ...flags, name: arg }, dry);
+        if (fresh && dry) rmSync(dir, { recursive: true, force: true });
+        result = { ok: true, data: describeJson(m) }; text = describe(m);
+      } catch (e) { if (fresh) rmSync(dir, { recursive: true, force: true }); throw e; }
+      break;
+    }
     case 'describe': {
       // The command surface is data too: describe declick is the same table as declick commands.
       if (arg === 'declick') { result = { ok: true, data: commandRows() }; text = USAGE; break; }
@@ -530,6 +561,30 @@ try {
       const rows = auditRows({ adapter: flags.adapter, since: flags.since, failed: flags.failed === true || flags.failed === 'true' });
       result = { ok: true, data: rows };
       text = rows.length ? rows.map(r => `${r.at}\t${r.adapter} ${r.verb ?? ''}\t${r.ok ? 'ok' : `exit ${r.exit}`}\t${r.governance?.decision ?? '-'}\t${r.ms}ms`).join('\n') : `no runs logged yet in ${join(HOME, 'audit.jsonl')}`;
+      break;
+    }
+    case 'policy': {
+      if (flags.example) { result = { ok: true, data: EXAMPLE_POLICY }; text = JSON.stringify(EXAMPLE_POLICY, null, 2); break; }
+      // An invalid file throws here exactly as it does on a run, so the command that explains the file says why.
+      const file = loadPolicy();
+      const data = { path: policyPath(), exists: !!file, rules: file?.rules || [] };
+      const line = (r, i) => `#${i} ${r.adapter ?? '*'} ${r.verb ?? '*'}${r.mutating === undefined ? '' : r.mutating ? ' mutating' : ' read-only'} -> ${r.decision}${r.reason ? ` (${r.reason})` : ''}`;
+      if (flags.check === undefined) {
+        result = { ok: true, data };
+        text = !file ? `no policy file at ${data.path}; every run is allowed`
+          : data.rules.length ? data.rules.map(line).join('\n') : `no rules in ${data.path}; every run is allowed`;
+        break;
+      }
+      if (flags.check === true) fail('--check needs an adapter and a verb, e.g. declick policy --check petstore delete-pet');
+      const adapter = String(flags.check);
+      if (!arg) fail(`usage: declick policy --check ${adapter} <verb>; run: declick describe ${adapter}`);
+      const pm = loadManifest(adapter);
+      const pv = pm.verbs.find(x => x.name === arg) || fail(`unknown verb ${arg} for ${adapter}; run: declick describe ${adapter}`, EXIT.NOT_FOUND);
+      // The same floor the runtime uses: a manifest may raise mutating, never lower it below the engine's derivation.
+      const mut = !!pv.mutating || derivedMutating(pm, pv) === true;
+      const hit = policyDecision({ adapter, verb: arg, mutating: mut });
+      result = { ok: true, data: { ...data, adapter, verb: arg, mutating: mut, decision: hit?.decision ?? 'allow', reason: hit?.reason ?? null, rule: hit?.rule ?? null } };
+      text = `${adapter} ${arg} (${mut ? 'mutating' : 'read-only'}) -> ${result.data.decision}${result.data.reason ? `: ${result.data.reason}` : ''} ${hit ? `(rule #${hit.rule})` : '(no rule matched)'}`;
       break;
     }
     case 'doctor': {
@@ -733,13 +788,54 @@ try {
       break;
     }
     case 'web': {
-      if (arg !== 'tree') fail('usage: declick web tree <url> [--selector css]');
+      if (arg !== 'tree' && arg !== 'text') fail('usage: declick web tree <url> [--selector css] [--grep re] | declick web text <url> [--selector css] [--grep re]');
       let u; try { u = new URL(arg2); } catch { fail(`${arg2} is not a url; try: declick web tree https://example.com`); }
       if (!/^https?:$/.test(u.protocol)) fail(`${arg2} must be an http(s) url`);
-      const { snapshot } = await import('../src/engines/web.mjs');
-      const s = await snapshot(u.href, { selector: flags.selector === true ? undefined : flags.selector, limit: flags.limit ?? 50 });
-      text = s.nodes.map(n => `${n.interactive ? '*' : ' '} ${n.role.padEnd(10)} ${n.name}${n.href ? `  ${n.href}` : ''}${n.id ? `  #${n.id}` : ''}`).join('\n') || `nothing to click on ${s.url}`;
-      result = { ok: true, data: s.nodes, meta: { url: s.url, title: s.title } };
+      let grep;
+      if (flags.grep && flags.grep !== true) { try { grep = new RegExp(String(flags.grep), 'i'); } catch (e) { fail(`--grep ${flags.grep} is not a regular expression: ${e.message}`); } }
+      const selector = flags.selector === true ? undefined : flags.selector;
+      const limit = flags.limit ?? 50;
+      if (arg === 'tree') {
+        const { snapshot } = await import('../src/engines/web.mjs');
+        const s = await snapshot(u.href, { selector, limit, grep });
+        text = s.nodes.slice(0, limit).map(n => `${n.interactive ? '*' : ' '} ${n.role.padEnd(10)} ${n.name}${n.href ? `  ${n.href}` : ''}${n.id ? `  #${n.id}` : ''}`).join('\n') || `nothing to click on ${s.url}`;
+        result = { ok: true, data: s.nodes, meta: { url: s.url, title: s.title } };
+      } else {
+        const { pageText } = await import('../src/engines/web.mjs');
+        const p = await pageText(u.href, { selector, limit, grep });
+        text = p.lines.slice(0, limit).map(l => `${l.n}\t${l.text}`).join('\n') || `nothing to read on ${p.url}`;
+        result = { ok: true, data: p.lines, meta: { url: p.url, title: p.title } };
+      }
+      break;
+    }
+    case 'defaults': {
+      const m = loadManifest(arg);
+      if (flags.verb === true) fail(`--verb needs a verb name; run: declick describe ${arg}`);
+      const scope = flags.verb === undefined ? '*' : String(flags.verb);
+      if (scope !== '*' && !m.verbs.some(v => v.name === scope)) fail(`unknown verb ${scope} for ${arg}; run: declick describe ${arg}`, EXIT.NOT_FOUND);
+      const sets = [].concat(flags.set ?? []), unsets = [].concat(flags.unset ?? []);
+      if (sets.some(s => s === true || !String(s).includes('='))) fail(`--set takes k=v, e.g. declick defaults ${arg} --set limit=20`);
+      if (unsets.some(u => u === true)) fail(`--unset takes a flag name, e.g. declick defaults ${arg} --unset limit`);
+      // --clear with no --verb drops the whole file, not just the * scope: that is the start-over the flag promises.
+      const next = flags.clear && flags.verb === undefined ? {} : JSON.parse(JSON.stringify(loadDefaults(arg) || {}));
+      if (flags.clear) delete next[scope];
+      // A key the verb does not know is exactly what --unset is for, so only --set is checked against the flags.
+      for (const u of unsets) for (const k of Object.keys(next[scope] || {})) if (camel(k) === camel(String(u))) delete next[scope][k];
+      const known = knownFlags(m, scope);
+      for (const s of sets) {
+        const eq = String(s).indexOf('='); const k = String(s).slice(0, eq); const val = String(s).slice(eq + 1);
+        if (!known.has(camel(k))) fail(`${scope === '*' ? arg : `${arg} ${scope}`} has no --${k} flag; run: declick describe ${arg}${scope === '*' ? ' --full' : ` --verb ${scope}`}`);
+        // base-url and baseUrl are one flag, so they are one key here too: the last --set wins, not both.
+        for (const old of Object.keys(next[scope] || {})) if (camel(old) === camel(k)) delete next[scope][old];
+        // The file is read and hand-edited by people too: a number stays a number and a bool stays a bool.
+        (next[scope] ??= {})[k] = /^-?\d+$/.test(val) ? Number(val) : val === 'true' ? true : val === 'false' ? false : val;
+      }
+      for (const [k, entry] of Object.entries(next)) if (!Object.keys(entry).length) delete next[k];
+      // A value the runtime would reject (--limit 0) is refused here, or the file breaks every later run.
+      try { for (const entry of Object.values(next)) parseEntry(entry); } catch (e) { fail(`${e.message}; nothing written to ${defaultsPath(arg)}`); }
+      if (!dry && (flags.clear || sets.length || unsets.length)) saveDefaults(arg, next);
+      result = { ok: true, data: next, meta: { path: defaultsPath(arg) } };
+      text = Object.keys(next).length ? defaultsLines(next).join('\n') : `no defaults for ${arg}; e.g. declick defaults ${arg} --set limit=20`;
       break;
     }
     case 'ui': {

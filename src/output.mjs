@@ -1,9 +1,9 @@
 export const EXIT = { OK: 0, ERROR: 1, NOT_FOUND: 2, BLOCKED: 3, AUTH: 4 };
 
 // Contract flags that never take a value. Everything else takes the next token unless it starts with --.
-export const BOOLS = new Set(['json', 'dryRun', 'full', 'help', 'version', 'open', 'force', 'verbose', 'curl']);
+export const BOOLS = new Set(['json', 'dryRun', 'full', 'help', 'version', 'open', 'force', 'verbose', 'curl', 'defaults']);
 export const RESERVED = ['json', 'fields', 'limit', 'rows', 'dry-run', 'full', 'help',
-  'header', 'output', 'content-type', 'base-url', 'server', 'retry', 'timeout', 'verbose', 'curl', 'body-file'];
+  'header', 'output', 'content-type', 'base-url', 'server', 'retry', 'timeout', 'verbose', 'curl', 'body-file', 'each', 'defaults'];
 export const camel = s => s.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
 const fail = (msg, exit = EXIT.ERROR) => Object.assign(new Error(msg), { exit });
 

@@ -151,11 +151,34 @@ export async function execute(m, verbName, positional, flags = {}) {
 }
 
 // The tree a "declick web tree <url>" command prints: enough to write the next recipe, no screenshot.
-export async function snapshot(url, { selector, limit = 60 } = {}) {
+// grep, when given, is a compiled RegExp: the browser-side cap is raised so the filter sees the whole page,
+// then the CLI's own --limit slices the matches (via output.mjs's generic array shaping).
+export async function snapshot(url, { selector, limit = 60, grep } = {}) {
   const page = await open({ url });
   try {
-    const nodes = await page.tree(selector, limit);
+    const cap = grep ? Math.min(2000, limit * 20) : limit;
+    let nodes = await page.tree(selector, cap);
     if (nodes === null) throw err(`no element matches ${selector} on ${url}`, EXIT.NOT_FOUND);
+    if (grep) {
+      nodes = nodes.filter(n => grep.test(`${n.role}:${n.name}`) || (n.href && grep.test(n.href)));
+      if (!nodes.length) throw err(`no element matches /${grep.source}/ on ${url}`, EXIT.NOT_FOUND);
+    }
     return { url: await page.url(), title: await page.title(), nodes };
+  } finally { await page.close(); }
+}
+
+// The page's visible text, numbered so an agent can quote where it found something. grep filters lines but
+// never renumbers them: n always points at the line's place in the full (non-empty, trimmed) text.
+export async function pageText(url, { selector, grep, limit = 50 } = {}) {
+  const page = await open({ url });
+  try {
+    const raw = await page.text(selector);
+    if (raw === null) throw err(`no element matches ${selector} on ${url}`, EXIT.NOT_FOUND);
+    let lines = raw.split('\n').map(s => s.trim()).filter(Boolean).map((text, i) => ({ n: i + 1, text }));
+    if (grep) {
+      lines = lines.filter(l => grep.test(l.text));
+      if (!lines.length) throw err(`no line matches /${grep.source}/ on ${url}`, EXIT.NOT_FOUND);
+    }
+    return { url: await page.url(), title: await page.title(), lines };
   } finally { await page.close(); }
 }

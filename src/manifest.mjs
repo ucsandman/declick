@@ -5,7 +5,7 @@ import { oneLine } from './describe.mjs';
 
 export const HOME = process.env.DECLICK_HOME || join(homedir(), '.declick');
 export const MANIFEST_VERSION = 1;
-const ENGINES = ['openapi', 'desktop', 'mcp', 'web', 'graphql', 'postman', 'har', 'sqlite', 'cli'];
+const ENGINES = ['openapi', 'desktop', 'mcp', 'web', 'graphql', 'postman', 'har', 'sqlite', 'cli', 'compose'];
 export const KEBAB = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 // Prefixed vendor tokens anywhere in a string, or a bare 32+ char token that is the whole string.
 const SECRETISH = /\b(sk|pk|ghp|xox[abp])[-_][A-Za-z0-9_-]{12,}|\bAKIA[A-Z0-9]{16}\b|^[A-Za-z0-9]{32,}$/;

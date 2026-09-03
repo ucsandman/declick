@@ -11,10 +11,11 @@ import * as postman from './postman.mjs';
 import * as har from './har.mjs';
 import * as sqlite from './sqlite.mjs';
 import * as cli from './cli.mjs';
+import * as compose from './compose.mjs';
 import { findChrome } from '../cdp.mjs';
 import { parseYaml } from '../yaml.mjs';
 
-export const engines = { openapi, desktop, mcp, web, graphql, postman, har, sqlite, cli };
+export const engines = { openapi, desktop, mcp, web, graphql, postman, har, sqlite, cli, compose };
 
 // ready is what this machine can compile today, so declick engines and declick doctor never promise a
 // tool that is not here. Every source string below is runnable as written.
@@ -28,15 +29,18 @@ export const ENGINE_INFO = [
   { name: 'har', ready: true, source: 'capture.har', note: 'browser network capture; --host picks the API host when the capture has several' },
   { name: 'sqlite', ready: true, source: 'sqlite:<path> | data.db', note: 'introspects tables and views into list, get, insert, update, delete and a parameterized query' },
   { name: 'cli', ready: true, source: 'cli:<binary> [fixed args]', note: 'compiled from the tool own --help; the binary must be on PATH' },
+  { name: 'compose', ready: true, source: 'compose:<chain.json>', note: 'chains verbs from adapters already built into one verb; every step still runs as its own guarded, audited command' },
 ];
 
-const PREFIX = [['app:', 'desktop'], ['mcp:', 'mcp'], ['web:', 'web'], ['graphql:', 'graphql'], ['sqlite:', 'sqlite'], ['cli:', 'cli']];
-const FORMS = 'spec.json | spec.yaml | https://... | app:<window title> | mcp:<command args> | web:<url> | graphql:<url> | sqlite:<path> | cli:<binary> | collection.json | capture.har | schema.graphql';
+const PREFIX = [['app:', 'desktop'], ['mcp:', 'mcp'], ['web:', 'web'], ['graphql:', 'graphql'], ['sqlite:', 'sqlite'], ['cli:', 'cli'], ['compose:', 'compose']];
+const FORMS = 'spec.json | spec.yaml | https://... | app:<window title> | mcp:<command args> | web:<url> | graphql:<url> | sqlite:<path> | cli:<binary> | collection.json | capture.har | schema.graphql | compose:<chain.json>';
 const fail = msg => Object.assign(new Error(msg), { exit: 1 });
 
 // The marker that says what a document really is sits in its first bytes, and a capture can be tens of
 // megabytes, so a source is routed from its head and never parsed whole to be routed.
 const CONTENT = [
+  // A chain says so in its first object; no other format declares a compose key, so this is read first.
+  [/^\s*\{[\s\S]{0,400}"compose"\s*:\s*true/, 'compose'],
   [/"(openapi|swagger)"\s*:\s*"|^\s*(openapi|swagger)\s*:\s*["']?\d/m, 'openapi'],
   [/schema\.getpostman\.com|"_postman_id"|"_type"\s*:\s*"(export|request|workspace)"/, 'postman'],
   [/"log"\s*:\s*\{[\s\S]{0,400}"entries"\s*:/, 'har'],

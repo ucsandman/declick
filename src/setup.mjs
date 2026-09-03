@@ -3,11 +3,11 @@
 // over the engine registry and the command table) and are passed in here rather than duplicated.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, copyFileSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, delimiter } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { EXIT } from './output.mjs';
-import { HOME, listManifests, loadManifest } from './manifest.mjs';
+import { HOME, listManifests, loadManifest, manifestDir } from './manifest.mjs';
 import { installPath, binDir } from './launcher.mjs';
 import { restoreAll, undoPath, START, END } from './setup-revert-standalone.mjs';
 
@@ -23,7 +23,7 @@ const firstLine = msg => String(msg).split('\n')[0].replace(/\s+at [^ ]+ \(.*$/,
 
 const RULES_BLOCK = `${START}
 ## declick first
-Before an MCP tool, WebFetch, a browser read, a screenshot or raw curl, use the declick adapter: \`declick list\` (what exists) → \`declick describe <name> --verb <verb>\` (under 500 tokens) → \`declick run <name> <verb> … --fields a,b --limit N\` (trimmed JSON, exit 0 ok). A page's links, buttons and inputs: \`declick web tree <url> --selector <css> --limit 20\`; whether a page says X: \`curl -s <url> | grep -c X\`. A window: \`declick desk tree <title> --interactive\`. A target with no adapter you will hit twice: \`declick add <spec|mcp:…|graphql:…|cli:…> --name <n>\`. Never edit ~/.declick by hand. Subagents have no MCP tools; they have declick. Undo all of this with \`declick setup --revert\`.
+Before an MCP tool, WebFetch, a browser read, a screenshot or raw curl, use the declick adapter: \`declick list\` (what exists) → \`declick describe <name> --verb <verb>\` (under 500 tokens) → \`declick run <name> <verb> … --fields a,b --limit N\` (trimmed JSON, exit 0 ok). A page's links, buttons and inputs: \`declick web tree <url> --selector <css> --limit 20\`; whether a page says X: \`declick web text <url> --grep X\`. A window: \`declick desk tree <title> --interactive\`. A target with no adapter you will hit twice: \`declick add <spec|mcp:…|graphql:…|cli:…> --name <n>\`. Never edit ~/.declick by hand. Subagents have no MCP tools; they have declick. Undo all of this with \`declick setup --revert\`.
 ${END}`;
 
 // Rule targets, only the ones whose client dir exists; CLAUDE.md is created if .claude exists but CLAUDE.md
@@ -117,6 +117,24 @@ export function gatherMcpSources(clientHome, cwd) {
 }
 
 const findExistingBySource = source => listManifests().map(n => { try { return loadManifest(n); } catch { return null; } }).filter(Boolean).find(m => m.source === source);
+// The source of whatever adapter already lives at `name`, or null: checked before every build() attempt so
+// adoption never lets build() overwrite an adapter someone else built under that name (build()'s own
+// collision check only looks at real PATH binaries, not at declick's own manifests).
+const adapterSourceIfExists = name => { try { return existsSync(join(manifestDir(name), 'manifest.json')) ? loadManifest(name).source : null; } catch { return null; } };
+
+// The -mcp fallback for a server whose plain name is unusable: refused up front if that name too already
+// belongs to a different adapter (never let build() overwrite it), otherwise built, with the same AUTH
+// wording a first attempt would get and the original "both collide" wording for anything else.
+async function tryFallback(s, name, build, dry) {
+  const alt = `${name}-mcp`;
+  const altTaken = adapterSourceIfExists(alt);
+  if (altTaken && altTaken !== s.source) return { skip: `name ${alt} is taken by an adapter built from ${altTaken}; declick add ${s.source} --name <other-name>` };
+  try { await build(s.source, { name: alt }, dry); return { name: alt }; }
+  catch (e) {
+    if (e.exit === EXIT.AUTH) return { skip: `needs ${tokenKey(alt)} in the vault` };
+    return { skip: `${name} and ${alt} both collide: ${firstLine(e.message)}` };
+  }
+}
 
 // One build attempt per server, never fatal: exit 4 (bearer needed) and a name collision are named for what
 // they are, everything else reports the error's first line. Renamed adapters (and already-adapted servers)
@@ -127,13 +145,19 @@ async function adoptServers(sources, build, { dry } = {}) {
     const existing = findExistingBySource(s.source);
     if (existing) { mapping[s.serverName] = existing.name; skipped.push({ server: s.serverName, why: 'already adapted' }); continue; }
     const name = s.adapterName;
+    const nameTaken = adapterSourceIfExists(name);
+    if (nameTaken && nameTaken !== s.source) {
+      const r = await tryFallback(s, name, build, dry);
+      if (r.name) { built.push(r.name); mapping[s.serverName] = r.name; } else skipped.push({ server: s.serverName, why: r.skip });
+      continue;
+    }
     try { await build(s.source, { name }, dry); built.push(name); mapping[s.serverName] = name; }
     catch (e) {
       if (e.exit === EXIT.AUTH) { skipped.push({ server: s.serverName, why: `needs ${tokenKey(name)} in the vault` }); continue; }
       if (e.exit === EXIT.ERROR && /already resolves to|was not written by declick/.test(e.message)) {
-        const alt = `${name}-mcp`;
-        try { await build(s.source, { name: alt }, dry); built.push(alt); mapping[s.serverName] = alt; continue; }
-        catch (e2) { skipped.push({ server: s.serverName, why: `${name} and ${alt} both collide: ${firstLine(e2.message)}` }); continue; }
+        const r = await tryFallback(s, name, build, dry);
+        if (r.name) { built.push(r.name); mapping[s.serverName] = r.name; } else skipped.push({ server: s.serverName, why: r.skip });
+        continue;
       }
       skipped.push({ server: s.serverName, why: firstLine(e.message) });
     }
@@ -176,8 +200,12 @@ export async function runSetup({ flags = {}, build, cwd = process.cwd(), clientH
     });
   } catch (e) { throw Object.assign(new Error(`could not write the setup snapshot: ${e.message}`), { exit: EXIT.ERROR }); }
 
-  // 2. PATH
+  // 2. PATH, before adopting servers: writeLauncher() (called once per adapter below) checks onPath()
+  // against process.env.PATH, which a registry or profile-file edit never touches for this same process --
+  // without also extending process.env.PATH here, every adapter built below would print its own
+  // "add to PATH once" hint even though installPath just handled it.
   const pathResult = flags.noPath ? { kind: null, file: null, line: null, added: false } : installPath({ dry: false });
+  if (pathResult.added) process.env.PATH = `${process.env.PATH}${delimiter}${binDir()}`;
 
   // 3. Adopt MCP servers, then the map the hook reads.
   const adopters = flags.noAdopt ? { built: [], skipped: [], mapping: {} } : await adoptServers(sources, build, { dry: false });

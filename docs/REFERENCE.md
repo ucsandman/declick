@@ -62,6 +62,95 @@ Every text field that can come from an untrusted spec or an imported bundle (`so
 
 `declick manifest --schema` prints the same field reference as data.
 
+## Per-adapter flag defaults
+
+`~/.declick/<name>/defaults.json` is optional and hand-editable: an object of scopes, each an object of flag names to values.
+
+```json
+{
+  "*": { "limit": 20, "fields": "id,name" },
+  "find-pets-by-status": { "status": "sold" }
+}
+```
+
+- `*` applies to every verb of the adapter; a key named after a verb applies to that verb only and overrides `*`; a flag typed on the command line overrides both. The keys that came from the file are listed in `meta.defaults`.
+- Values are parsed exactly like the tokens they stand for: `"fields": "id,name"` splits into a field list, `"limit": 0` is the same error as `--limit 0`, `"dry-run": true` is the boolean. Keys may be kebab-case or camelCase. A key repeated across scopes is replaced, never turned into an array.
+- A key the verb does not accept is exit 1 naming the file and the key; `declick defaults <name> --unset <key>` is the fix and is never checked against the manifest, so a file left behind by an old build is always repairable. `--set` refuses a value the runtime would reject and writes nothing.
+- A file that is not valid JSON is exit 1 when a verb runs, naming the file and the `--clear` that fixes it. `describe`, `lint`, `build` and `skill` keep working and print `defaults: unreadable`.
+- The file lives beside `manifest.json`, so `declick build` and `declick add --force` leave it alone; `declick remove` deletes the directory and takes it with it.
+
+`--no-defaults` skips the file for one call; `DECLICK_DEFAULTS=off` skips it for every call.
+
+## Batch input (`--each`)
+
+`--each <file>` takes NDJSON, one JSON object per line, blank lines ignored; a file whose first non-space character is `[` is a JSON array of the same objects; `--each -` reads stdin. An item is one of two shapes:
+
+| Shape | Example | Meaning |
+|---|---|---|
+| Explicit | `{"args": ["7"], "flags": {"fields": "id,name"}}` | positional args by index, flags by name |
+| Shorthand | `{"petId": 7, "fields": "id,name"}` | keys matching the verb's arg names become positional args, everything else is a flag |
+
+An item that mixes the two, an item that is not an object, a line that is not JSON, and a file that does not exist are exit 1 naming the line, and nothing runs. Values become the tokens the same call would have carried: a number its digits, an array a repeated flag, an object JSON, `true`/`false` a boolean flag. A value the parser rejects fails that item only, like a flag name the verb does not know. Command-line args and flags are the defaults for every item and are overridden per key, except `--dry-run`, which an item can turn on but never off.
+
+The answer is one envelope. `data` is one entry per item in input order: `input` (the item as read), `ok`, `exit`, and `data` (shaped by the item's own `--fields`, `--limit`, `--rows`) or `error`. `meta` carries `count`, `failed` and `each: true` beside the usual `governance` and `credentials`. Exit 0 when every item is ok, otherwise the first failing item's code. A failing item does not stop the ones after it; a blocked item does, and the entries behind it read `not run: item N was blocked` with exit 3. `~/.declick/audit.jsonl` gets one line for the batch carrying `each: {count, failed}`.
+
+## Local policy (`policy.json`)
+
+`$DECLICK_HOME/policy.json`, or the path in `DECLICK_POLICY`. One object with one field, `rules`, an array evaluated top to bottom. The first rule that matches decides; no file and no match both mean allow.
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `adapter` | string glob | `*` | Adapter name: `*`, an exact name, or a glob like `pet*` |
+| `verb` | string glob | `*` | Verb name, same glob rules (`delete-*`) |
+| `mutating` | boolean | unset | When set, matches only verbs whose effective mutating flag equals it (the manifest's flag, raised by the engine's derivation, never lowered) |
+| `decision` | `allow` \| `warn` \| `block` | required | What happens to a matching run |
+| `reason` | string | unset | Shown to the agent in the error or the warning; a rule with no reason reads as `rule <index>` |
+
+Any other field, a `rules` that is not an array, a decision outside the three, or JSON that does not parse is an invalid file, and invalid fails closed: every run exits 1 with `policy file <path> is invalid: <why>; fix it or unset DECLICK_POLICY`, and `declick policy` refuses in the same words.
+
+Where it runs: mutating verbs inside the same gate DashClaw uses (`src/guard.mjs`), so the runtime, `declick ui` and the authoring replay are all covered; read-only verbs in `bin/run.mjs` before credentials are scoped and before a request is built. A policy `warn` prints to stderr and, when a key is set, still goes on to DashClaw. `--dry-run` skips the policy as it skips the guard. Under `--each` every item is evaluated on its own and a blocked item stops the batch.
+
+A blocked run is exit 3, `ok:false`, `error: "blocked by policy: <reason>"`, and `meta.governance: { enabled, decision: "block", reason, source: "policy" }`. `source` is `"policy"` on any decision the local file made and absent otherwise: no `source` with `enabled: true` came from DashClaw, no `source` with `enabled: false` is `skipped`, `read-only verb` or `dry-run`. The audit line carries the same object.
+
+Commands: `declick policy` (path, existence, one line per rule), `declick policy --check <adapter> <verb>` (the verb's mutating flag, the winning rule, the decision and reason), `declick policy --example` (an example file as data).
+
+## Compose chain files
+
+A chain file is JSON. `declick add compose:<file>` compiles it; a plain `.json` whose top-level object carries `"compose": true` routes to the compose engine on its own. `declick compose <name> --steps <file|->` is the same compile (`-` reads stdin and keeps a copy the adapter owns, so `declick build <name>` still works); `declick compose <name>` prints the chain step by step.
+
+| Field | Required | Meaning |
+|---|---|---|
+| `compose` | for a bare `.json` source | `true` marks the file as a chain |
+| `verbs` | yes | non-empty; each entry becomes one verb |
+| `verbs[].name` / `description` | yes | kebab-case and unique; one line, 80 chars or fewer |
+| `verbs[].args` | no | positional arguments in order, each `{name, description}`; `"required": false` renders as `[name]` |
+| `verbs[].flags` | no | named flags, each `{name, description}`; none may collide with a contract flag |
+| `verbs[].steps` | yes | non-empty, run in order |
+| `verbs[].steps[].run` | yes | a command string split shell-style (quotes respected) or an argv array: adapter, verb, then arguments and flags |
+| `verbs[].steps[].as` | no | the name later templates read this step's data by |
+| `verbs[].steps[].optional` | no | `true` records a failure and continues with `as` unset |
+| `verbs[].returns` | no | a step's `as`, or a template like `{owner.email}`; default the last step's data |
+
+Templates: `{name}` matches `[A-Za-z_][A-Za-z0-9_-]*`, optionally dotted. A bare name is one of the verb's arguments or flags; a dotted name reads an earlier step through its `as`. `{my-pet}` and `{myPet}` are the same step, the rule declick already applies to flags. Only own properties are read, an object or array is JSON-stringified, and a literal `{"a":1}` passes through unchanged. There is no escape syntax.
+
+Checked at compile: every step's adapter and verb exist in the real manifests (a missing one names what it looked for), every template names an argument, a flag or an earlier step, no `as` shadows one of those, and `returns` names something that exists. The composite's `mutating` is taken from the target manifests at compile time and recorded per step; `declick lint` derives the same value, so a hand-edited manifest may raise it and never lower it.
+
+Run time: each step runs as `node bin/run.mjs <adapter> <verb> --json=true [--dry-run=true] ...` in a child process that inherits the environment, so `DECLICK_<NAME>_BASE_URL`, credentials, the adapter's `defaults.json`, governance and the audit log all apply to the step as they would to the same command typed by hand. `DECLICK_TIMEOUT_MS` bounds each step; `DECLICK_COMPOSE_DEPTH` is set by the engine and refuses a chain nested more than 8 deep. `returns.rowsPath` is left undefined; `--fields` and `--limit` apply to the composite's answer, never to a step, and a dry-run payload is never projected away.
+
+## Web tree and text
+
+`declick web tree <url>` and `declick web text <url>` open the url headless and answer without a screenshot.
+
+- `--selector css` scopes either action to one element.
+- `--grep re` is a case-insensitive regex. On `tree` it is tested against `role:name` and `href`; on `text` against each line. Zero matches exits 2 with `no element matches /re/ on <url>` or `no line matches /re/ on <url>`. An invalid regex exits 1.
+- `--limit N` (default 50) caps the rows; `meta.count` and `meta.truncated` report the true match count when `--grep` narrowed a bigger page.
+
+`declick web text` returns `{n, text}` rows, `n` being the 1-based line number in the full trimmed text, so an agent can quote where it found something after `--grep` filtered the list. Text mode prints `n<TAB>text` per line.
+
+## Streamed responses
+
+For an openapi verb whose response content-type is `text/event-stream`, `data` is an array of `{ event?, id?, data }` objects (SSE `data:` lines joined with `\n`, JSON payloads parsed, everything else a string) and the envelope carries `meta.stream: { events, complete, truncatedByTimeout, ms }`. When the `--timeout` or `DECLICK_TIMEOUT_MS` budget runs out before the stream ends, `complete` is false, `truncatedByTimeout` and the top-level `meta.truncated` are true, the events already received are returned, and the exit code stays 0. `--retry` never applies once a stream has started.
+
 ## Environment variables
 
 | Variable | Effect |
@@ -79,6 +168,8 @@ Every text field that can come from an untrusted spec or an imported bundle (`so
 | `DASHCLAW_TIMEOUT_MS` | Guard call timeout, default 3000 |
 | `DECLICK_GUARD` | `strict` (default once a key is set) or `open` |
 | `DECLICK_AUDIT` | `off` disables `~/.declick/audit.jsonl` |
+| `DECLICK_DEFAULTS` | `off` ignores every `~/.declick/<name>/defaults.json` |
+| `DECLICK_POLICY` | path of the policy file, default `~/.declick/policy.json` |
 | `DECLICK_ENV_ALLOW` | Comma-separated key names allowed to cross origins |
 | `DECLICK_<NAME>_BASE_URL` | Per-adapter base URL override |
 | `DECLICK_TIMEOUT_MS` | mcp and http client timeout default |

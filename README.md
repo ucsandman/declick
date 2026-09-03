@@ -66,8 +66,43 @@ Every engine is built in, with zero runtime dependencies. `declick engines` list
 | cli | `cli:<binary> [fixed args]`, compiled from the tool's own `--help` |
 | web | `web:https://<site> --recipes <dir>`: a real browser over CDP, and a miss returns the elements that are there instead of a screenshot |
 | desktop | `app:<window title>` on Windows through [deskclaw](https://github.com/ucsandman/deskclaw) UI Automation. `declick engines` reports it as not ready, Windows only, on any other platform |
+| compose | `compose:<chain.json>`: a chain of verbs from adapters you already built becomes one verb with one envelope (see "Compose verbs") |
 
 A spec-shaped URL (`.json`, `.yaml`, `openapi`, `swagger`, `api-docs` in the path) routes to the openapi engine even when the `openapi` key is not in the first 64 KB, which is the case for large specs that list `components` first. A spec URL that answers 404 fails naming the status (`GET <url> -> 404`), and a plain page URL is told it is not a spec rather than compiled as one.
+
+## Compose verbs
+
+An agent that needs the owner behind a pet id runs two commands and remembers the join between them. Next session it works the join out again. A chain writes the join down once:
+
+```json
+{
+  "compose": true,
+  "verbs": [
+    {
+      "name": "pet-owner",
+      "description": "the owner record behind a pet id",
+      "args": [{ "name": "id", "description": "pet id" }],
+      "steps": [
+        { "run": "petstore get-pet-by-id {id}", "as": "pet" },
+        { "run": "crm find-customer --name {pet.owner.name}", "as": "owner" }
+      ],
+      "returns": "owner"
+    }
+  ]
+}
+```
+
+```
+declick add compose:./chain.json --name ops     # or: declick compose ops --steps ./chain.json
+ops pet-owner 7
+declick compose ops                              # print the chain, step by step
+```
+
+`ops pet-owner 7` answers with one envelope, one exit code and one audit line, like any other verb; `--json`, `--fields`, `--limit` and `--dry-run` all work on the composite, and `meta` carries `steps` and `ms`. `{id}` reads the composite's own arguments and flags, `{pet.owner.name}` reads an earlier step's data through its `as`; an object or array is JSON-stringified into the argument, and a template naming nothing is refused when the chain is compiled, not when an agent first runs it. `returns` is a step's `as`, a template like `{owner.email}`, or, left out, the last step's data.
+
+A step that exits non-zero stops the chain and the composite keeps that step's exit code, with an error naming it (`step 1 (petstore get-pet-by-id): GET /pet/999 -> 404`) and `data.steps` carrying every step that already ran. A step marked `"optional": true` records its error and lets the chain continue. `--dry-run` passes `--dry-run` to every step, so nothing is sent; a template that reads an earlier step stays literal in the preview.
+
+Every step runs as its own `declick` command in a child process, so it is guarded, credentialed, defaulted and audited by its own adapter. A composite is mutating when any step's target verb is, resolved from the target manifests at compile time, so a mutating chain is put to DashClaw twice: once for the composite and once per mutating step. The audit log gets one line per step plus one for the composite. `declick add` refuses a chain naming an adapter or verb that is not there, and a chain that calls itself stops at eight levels deep.
 
 ## The output contract
 
@@ -81,6 +116,9 @@ Every generated adapter, and every `declick` command, follows this:
 | `--limit N` | Cap list output. Default 50. Must be a positive integer; anything else, including `0`, is exit 1. |
 | `--rows path` | Unwrap a dotted array field inside a response object instead of projecting the object itself. `meta.rows` names the path, `meta.extra` carries the sibling fields (cursor, total, etc). Without `--rows`, a verb whose compiled `returns.rowsPath` names one is auto-unwrapped only when `--fields` or `--limit` is passed, so an unfiltered call returns the resource as the API sent it; `rowsPath` is compiled only for a list-shaped property, and `describe`/`manifest`/management output is never auto-unwrapped. |
 | `--dry-run` | Every mutating verb accepts it, prints what it would do, and sets `meta.dryRun: true`. Management commands that write (`add`, `build`, `accept`, `import`, `skill`, `remove`, `path --install`, `desk arm\|disarm`) accept it too; `author`, `repair` and `ui` have no preview and refuse it. |
+| `--each file` | Run the verb once per item in a file of inputs (`-` for stdin), in order, and get one envelope back: `data` is one entry per item, `meta` carries `count`, `failed` and `each: true`. Exit 0 when every item is ok, otherwise the exit of the first that was not. Each item is guarded and shaped on its own; `--dry-run` previews every item and an item can never cancel it. A failing item does not stop the rest; a blocked one does. See "Run a verb over a list". |
+| `--no-defaults` | Ignore `~/.declick/<name>/defaults.json` for this call. `DECLICK_DEFAULTS=off` does the same for every call. See "Flag defaults per adapter". |
+| Streams | A `text/event-stream` response is read as it arrives instead of buffered whole: `data` is an array of parsed events, and when the timeout budget runs out mid-stream you get every event that already came in, `meta.stream.truncatedByTimeout: true`, `meta.truncated: true` and exit 0, not an error. |
 | Flags | `--flag value` and `--flag=value` both work. Boolean flags (`--json`, `--dry-run`, `--full`, `--help`) never consume the next argument, so order does not matter. Unknown flags are exit 1, never ignored. `--` ends flags. |
 | Request flags | Verbs on the engines that speak HTTP (openapi, postman, har) also take `--header 'K: V'` (repeatable), `--base-url <url>` or `--server <index\|description>` (or `DECLICK_<NAME>_BASE_URL`), `--content-type <type>` to pick among the declared body types, `--body @file` / `--body-file <path>` / `--body -` for stdin, `--output <path>` for a binary response, `--retry N` and `--timeout <ms>`, `--verbose` (`meta.request`, `meta.response`, `meta.status`) and `--curl` (a runnable line with every secret masked as its env name). `describe --full` lists them. Each takes a value, so a bare `--retry` is exit 1, not a silent default. |
 | Exit codes | 0 ok, 1 error, 2 not found (adapter, verb, window or element), 3 blocked (governance, deskclaw unarmed or STOP), 4 auth needed. |
@@ -88,6 +126,47 @@ Every generated adapter, and every `declick` command, follows this:
 | Auth | The manifest names required env keys only. At runtime declick reads `process.env` first, then `~/.creds/vault.env` (`CREDS_VAULT` overrides), for just those names. `declick auth <name>` reports which keys are present and from where. Secrets never land in a manifest. |
 | SKILL.md | Generated from the manifest: when to use, the describe output, three runnable examples, the `declick run` fallback, the exit codes that apply to that engine. Never overwrites a skill declick did not write. |
 | Lint | `declick lint <name>` fails the build on: describe over 2000 chars, duplicate or reserved verb names (`describe`), flags or args that collide with the contract flags, descriptions over 80 chars or spanning lines, a relative or templated base URL, a path parameter with no arg, an invalid desktop recipe, or a value that looks like a secret. A failed build prints the first eight errors and a count of the rest. |
+
+## Run a verb over a list
+
+`--each <file>` runs one verb once per input and answers with a single envelope. The file is NDJSON, one JSON object per line; a file that starts with `[` is a JSON array of the same objects, and `--each -` reads from stdin. An item is either `{"args": [...], "flags": {...}}` or a flat object whose keys are the verb's argument and flag names. Whatever you type on the command line is the default for every item, and each item overrides it key by key.
+
+```bash
+$ cat pets.ndjson
+{"petId": 7}
+{"petId": 8}
+{"args": ["9"], "flags": {"fields": "name"}}
+
+$ declick run petstore get-pet-by-id --each pets.ndjson --dry-run
+{"ok":true,"data":[
+  {"input":{"petId":7},"ok":true,"exit":0,"data":{"method":"GET","url":"https://petstore3.swagger.io/api/v3/pet/7","headers":{"accept":"application/json","api_key":"<PETSTORE_API_KEY>"}}},
+  {"input":{"petId":8},"ok":true,"exit":0,"data":{"method":"GET","url":"https://petstore3.swagger.io/api/v3/pet/8","headers":{"accept":"application/json","api_key":"<PETSTORE_API_KEY>"}}},
+  {"input":{"args":["9"],"flags":{"fields":"name"}},"ok":true,"exit":0,"data":{"method":"GET","url":"https://petstore3.swagger.io/api/v3/pet/9","headers":{"accept":"application/json","api_key":"<PETSTORE_API_KEY>"}}}],
+ "meta":{"count":3,"truncated":false,"failed":0,"each":true,"governance":{"enabled":false,"decision":"skipped","reason":"read-only verb"}}}
+```
+
+Every entry carries the item it came from, so a result is never separated from its input. A failing item is `{"input":..., "ok":false, "exit":N, "error":"..."}` and the batch keeps going; the process exits with the first failing item's code and `meta.failed` says how many there were. Governance is the one thing that stops a batch: after an item is blocked, the rest are reported as `not run: item N was blocked` rather than sent to the guard one by one. A file that cannot be read at all (a missing path, a line that is not JSON, an item that is neither shape) is exit 1 naming the line number, and nothing runs. The run log gets one line for the batch.
+
+## Flag defaults per adapter
+
+`~/.declick/<name>/defaults.json` holds flags you would otherwise retype on every call. It sits beside `manifest.json`, so `declick build` never touches it.
+
+```bash
+declick defaults petstore --set limit=20 --set fields=id,name
+declick defaults petstore --verb find-pets-by-status --set status=sold
+declick defaults petstore              # print the file
+declick defaults petstore --unset fields
+declick defaults petstore --clear      # drop the file
+```
+
+```json
+{
+  "*": { "limit": 20, "fields": "id,name" },
+  "find-pets-by-status": { "status": "sold" }
+}
+```
+
+The `*` scope applies to every verb, a verb scope wins over `*`, and a flag typed on the command line wins over both. `meta.defaults` lists the keys a run took from the file, `declick describe <name>` prints them on a `defaults:` line, and `--no-defaults` or `DECLICK_DEFAULTS=off` ignores the file. A key the verb does not accept is exit 1 naming the file and the key, so a stale default is loud rather than silent.
 
 ## Works with any agent
 
@@ -117,7 +196,7 @@ That is source, not captured output: `npm i declick` in the agent's project, the
 - **MCP** gives an agent tools over a protocol, which needs an MCP client in the loop. The mcp engine compiles a server into shell verbs, so an agent with only a shell uses it, and `--fields` and `--limit` cut the result before it reaches the context window.
 - **Screenshot and DOM agents** find the button again every session and pay tokens each time. The web and desktop engines record the path once and replay it, and a miss returns the elements that are there, not a screenshot.
 
-The part none of those share is that all nine engines, and declick itself, honor the same contract, so an agent learns the output shape once.
+The part none of those share is that all ten engines, and declick itself, honor the same contract, so an agent learns the output shape once.
 
 ## Governance
 
@@ -132,6 +211,28 @@ Every invocation through `bin/run.mjs` appends one line to `~/.declick/audit.jso
 Credentials are scoped to the origin the adapter was built from: a request that goes to a different host than the one stored at build time (via `--base-url`/`--server` or an env override) does not get that adapter's keys unless the target name is listed in `DECLICK_ENV_ALLOW` (comma-separated) or the origin change was explicit on the command line, and either way `meta.credentials[]` records `{name, from, scopedTo, sentTo}` so the cross-origin release is visible in the envelope, not just a warning on stderr.
 
 `declick ui` mints a random per-start token (`X-Declick-Token`) and every mutating POST from the page must echo it back (401 otherwise); `repair` and `add --goal` are refused with 403 unless the server was started with `--allow-authoring`. Mutating UI routes go through the same guard as the CLI.
+
+### A local policy, with no service
+
+DashClaw is the guard. `~/.declick/policy.json` is the floor under it: three decisions, one file, first match wins, no key, no endpoint, no network. It is checked on every run, read or write, before the request is built.
+
+```json
+{ "rules": [
+  { "adapter": "petstore", "verb": "delete-*", "decision": "block", "reason": "no deletes from agents" },
+  { "adapter": "*", "mutating": true, "decision": "warn", "reason": "writes are logged" },
+  { "adapter": "crm", "decision": "allow" }
+] }
+```
+
+A rule matches on `adapter` and `verb` (each a glob: `*`, a name, or a prefix like `delete-*`; both default to `*`) and, when it names `mutating`, only on verbs whose effective mutating flag equals it. `block` is exit 3 before anything is sent (`blocked by policy: <reason>`); `warn` is one stderr line and the verb runs, with DashClaw still getting the final say when a key is set; `allow` runs it and stops looking. No file, or no matching rule, means allow. `--dry-run` sends nothing, so it never asks the policy, exactly as it never asks the guard. The file fails closed: unreadable JSON, a bad decision or an unknown field makes every run exit 1 naming the file, so a policy nobody can read never reads as no policy.
+
+```
+declick policy                                  # the path, whether it exists, one line per rule
+declick policy --check petstore delete-pet      # which rule wins for this verb, and why
+declick policy --example                        # a file worth copying
+```
+
+`DECLICK_POLICY` moves the file. Every envelope a policy decided carries `meta.governance.source: "policy"`, and so does the audit line, so `declick audit` says which governor said no.
 
 ## Windows apps
 
@@ -185,13 +286,14 @@ An agent with only a shell can do all of this. Every command takes `--json` and 
 | `declick commands` / `declick <cmd> --help` | the whole command surface as data, and one row (flags, examples, whether it previews) for one command. The shipped `declick` skill is rendered from the same table, so it cannot drift. |
 | `declick audit [--adapter n] [--since 10m] [--failed]` | one line per invocation from `~/.declick/audit.jsonl`, newest first: what ran, what governance decided, redacted args |
 | `declick desk windows \| tree <window> \| read <window> <path> \| clipboard get\|set \| arm [min] \| disarm` | the desktop as data: `tree` takes `--depth N`, `--type Button`, `--grep re`, `--interactive`; `read` takes `--prop value\|name\|text\|toggle\|selected\|enabled` |
-| `declick web tree <url> [--selector css]` | a page as a tree of elements a recipe can click, interactive ones first, instead of a screenshot |
+| `declick web tree <url> [--selector css] [--grep re]` / `declick web text <url> [--selector css] [--grep re]` | `tree` is a page as a tree of elements a recipe can click, interactive ones first, instead of a screenshot; `text` is the page's visible text as numbered lines. `--grep` filters either one (role, name and href for `tree`; the line for `text`) and exits 2 when nothing matches, so `declick web text <url> --grep "privacy policy"` answers "does the page say X" in one call |
+| `declick defaults <n> [--verb v] [--set k=v] [--unset k] [--clear] [--dry-run]` | flag defaults for one adapter, printed, set, unset or cleared. `--set` and `--unset` repeat; without `--verb` they edit the `*` scope that applies to every verb. Every `--set` is checked against the flags that scope has, so a typo cannot be written |
 | `declick import --example [--engine e]` / `declick manifest --schema` | a minimal valid bundle, and the manifest field reference as data |
 | `declick ui [--port N] [--open] [--allow-authoring]` | the human page |
 
 ## Roadmap
 
-Not yet shipped: compose verbs (chain several verbs into one), `batch --each` (run a verb over a list of inputs), local policy files (governance rules without a DashClaw server), a macOS/Linux desktop backend (deskclaw is Windows only), SSE streaming responses, and per-adapter flag defaults.
+Not yet shipped: a macOS/Linux desktop backend (deskclaw is Windows only), and an approval wait (`declick approve wait <id>`) for a DashClaw `require_approval` decision.
 
 ## Development
 

@@ -1,3 +1,9 @@
+import { loadDefaults, defaultsLines } from './defaults.mjs';
+
+// lint, build and skill all render describe, so a hand-edited defaults file must not take them down with it:
+// an unreadable one is a line here, not a throw. Running a verb still fails loudly, since it cannot guess.
+const storedDefaults = name => { try { return { file: loadDefaults(name) }; } catch { return { broken: true }; } };
+
 // Manifest text comes from a spec or a recipe nobody wrote by hand: one bounded line, no backticks.
 export const oneLine = (s, n = 200) => String(s).replace(/[\r\n]+/g, ' ').replace(/`/g, "'").trim().slice(0, n);
 
@@ -8,7 +14,8 @@ const scrub = (x, n = 200) => typeof x === 'string' ? oneLine(x, n) : Array.isAr
 export function describeJson(m, { verb } = {}) {
   const verbs = (verb ? m.verbs.filter(v => v.name === verb) : m.verbs)
     .map(v => ({ name: oneLine(v.name, 100), description: oneLine(v.description), mutating: v.mutating, args: (v.args || []).map(a => scrub(a)), flags: (v.flags || []).map(f => scrub({ ...f, description: f.description ?? '' })), returns: scrub(v.returns ?? null) }));
-  return { name: oneLine(m.name, 100), engine: m.engine, source: oneLine(m.source, 500), baseUrl: m.baseUrl == null ? null : oneLine(m.baseUrl, 500), window: m.window == null ? null : oneLine(m.window, 500), builtAt: m.builtAt ?? null, auth: scrub(m.auth), verbs };
+  const { file: defaults } = storedDefaults(m.name);
+  return { name: oneLine(m.name, 100), engine: m.engine, source: oneLine(m.source, 500), baseUrl: m.baseUrl == null ? null : oneLine(m.baseUrl, 500), window: m.window == null ? null : oneLine(m.window, 500), builtAt: m.builtAt ?? null, auth: scrub(m.auth), ...(defaults ? { defaults } : {}), verbs };
 }
 
 // One line saying what comes back: the row fields, and the path --rows would unwrap by default.
@@ -64,8 +71,13 @@ export function describe(m, { full = false, verb, limit, offset } = {}) {
   const commonLine = `common: --json --fields --limit --rows --dry-run${hasFlags ? ' --full' : ''}   exit: 0 ok 1 err 2 missing 3 blocked 4 auth`;
   const requestLine = full && ['openapi', 'postman', 'har'].includes(m.engine) ? 'request: --header --base-url --server --content-type --body-file --output --retry --timeout --curl --verbose' : null;
   const authLine = m.auth?.env?.length ? `auth env: ${m.auth.env.map(e => oneLine(e, 100)).join(', ')}` : null;
+  // A defaults file changes what every run of this adapter answers, so it is said out loud here rather than
+  // leaving an agent to wonder where a --limit it never typed came from.
+  const stored = storedDefaults(m.name);
+  const defaultsLine = stored.broken ? `defaults: unreadable, run: declick defaults ${oneLine(m.name, 100)} --clear`
+    : stored.file && Object.keys(stored.file).length ? oneLine(`defaults: ${defaultsLines(stored.file).join('; ')}`, 300) : null;
   const footerLine = n => `  ... ${n} more verbs (${total} total): declick describe ${oneLine(m.name, 100)} --grep <text> | --offset N --limit N | --verb v`;
-  const tailBudget = [commonLine, requestLine, authLine].filter(Boolean).reduce((s, l) => s + l.length + 1, 0) + footerLine(total).length + 1;
+  const tailBudget = [commonLine, requestLine, authLine, defaultsLine].filter(Boolean).reduce((s, l) => s + l.length + 1, 0) + footerLine(total).length + 1;
   const verbBudget = DESCRIBE_CAP - header.length - 1 - tailBudget;
   const shown = [], shownBlocks = [];
   let used = 0;
@@ -83,5 +95,6 @@ export function describe(m, { full = false, verb, limit, offset } = {}) {
   lines.push(commonLine);
   if (requestLine) lines.push(requestLine);
   if (authLine) lines.push(authLine);
+  if (defaultsLine) lines.push(defaultsLine);
   return lines.join('\n');
 }
