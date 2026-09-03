@@ -3,7 +3,7 @@
 // still works after `npm rm -g declick`: node builtins only, nothing imported from the package. setup.mjs's
 // own --revert imports the restore functions straight from here, so there is exactly one implementation of
 // "undo a setup" whether it runs through the package or stands alone in the snapshot.
-import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, realpathSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,5 +93,8 @@ function main() {
   for (const a of manifest.adapters || []) console.log(`declick remove ${a}`);
 }
 
-// Runs when invoked directly (node revert.mjs); importing the functions above never triggers this.
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+// Runs when invoked directly (node revert.mjs); importing the functions above never triggers this. Both sides
+// go through realpath: on macOS the temp dir is a symlink (/var -> /private/var), import.meta.url carries the
+// real path and argv[1] the one the user typed, and a plain compare ran nothing (CI, 2026-09-03).
+const real = p => { try { return realpathSync(p); } catch { return resolve(p); } };
+if (process.argv[1] && real(process.argv[1]) === real(fileURLToPath(import.meta.url))) main();

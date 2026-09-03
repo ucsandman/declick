@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 (2026-09-03)
+
+- The standalone `revert.mjs` in a setup snapshot ran nothing when its directory sat behind a symlink (macOS keeps temp dirs under `/private/var`, reached as `/var`): its "am I the entry point" check compared a real path with the typed one. Both sides now go through realpath. Caught by the macOS CI job on 0.4.0.
+
 ## 0.4.0 (2026-09-03)
 
 - `declick setup [--dry-run] [--no-adopt] [--no-rules] [--no-hook] [--no-path] [--keep-adapters]`: wires declick into whatever agent is on the machine in one call. Puts `~/.declick/bin` on PATH, builds an adapter for every MCP server it finds in `.claude.json`, `.mcp.json`, installed Claude Code plugins and Codex's `config.toml` (a server needing a bearer it does not have is skipped and named, never dropped silently), adds a `<!-- declick:start -->` / `<!-- declick:end -->` rules block to `CLAUDE.md` or `AGENTS.md` telling the agent to reach for a declick adapter before an MCP call, WebFetch, a browser read or raw curl, and (Claude Code only) installs a PreToolUse hook that nudges the model once per adapter per session. Running it twice is a no-op for the rules block and the hook and rebuilds no adapter already adapted.

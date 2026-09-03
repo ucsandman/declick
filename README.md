@@ -199,7 +199,7 @@ Not yet shipped: compose verbs (chain several verbs into one), `batch --each` (r
 npm test
 ```
 
-Zero runtime dependencies, zero dev dependencies. Tests are `node --test`; 503 pass on 0.4.0. The CI matrix runs `npm test` on Windows, Linux and macOS for every push and pull request.
+Zero runtime dependencies, zero dev dependencies. Tests are `node --test`; 503 pass on 0.4.1. The CI matrix runs `npm test` on Windows, Linux and macOS for every push and pull request.
 
 `npm run qa` (`scripts/qa-real-specs.sh`, bash) is the release gate the suite cannot replace: it compiles six public specs (Stripe JSON and YAML, GitHub, Openverse, api.weather.gov, petstore3 YAML) from their live URLs, makes real keyless calls, checks the exit 4 path, `path --install` in a fresh login shell, the web page refusal, and the Node guard. Run it on Linux and macOS before every tag; `QA_FROM_NPM=1` runs it against the published package instead of the checkout.
 
