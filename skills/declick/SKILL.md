@@ -23,6 +23,7 @@ declick lint <name>                                                   check an a
 declick list                                                          every adapter with its engine, verbs and auth keys
 declick status [name]                                                 last run, last error with tree diff, proposals and recipes
 declick doctor                                                        node, home, PATH, deskclaw, claude, vault, engines and their tools
+declick daemon [action]                                               keep stdio MCP servers warm between runs: start, stop or status
 declick auth <name>                                                   which env keys a verb needs, and where each one is read from
 declick engines [--source x]                                          the engines this build has, or what one source would compile to
 declick path [--install]                                              where declick keeps adapters, launchers and skills

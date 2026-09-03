@@ -20,6 +20,7 @@ import { loadPolicy, policyDecision, policyPath, EXAMPLE_POLICY } from '../src/p
 import { defaultsPath, loadDefaults, saveDefaults, knownFlags, parseEntry, defaultsLines } from '../src/defaults.mjs';
 import { cacheClear } from '../src/cache.mjs';
 import { runSetup, runRevert, runUninstall, integrationStatus, clientHomeOf } from '../src/setup.mjs';
+import { SERVE_FLAG, daemonStart, daemonStop, daemonStatus, serveDaemon } from '../src/daemon.mjs';
 
 // ESM evaluates every static import before this module's own body runs, and src/engines/index.mjs statically
 // imports every engine including sqlite.mjs, which imports node:sqlite: on Node <24 that throws
@@ -76,6 +77,8 @@ const COMMANDS = [
   C('list', 'every adapter with its engine, verbs and auth keys', [], [], { examples: ['declick list --fields name,verbs'] }),
   C('status', 'last run, last error with tree diff, proposals and recipes', [P('name', false)], [], { examples: ['declick status petstore'] }),
   C('doctor', 'node, home, PATH, deskclaw, claude, vault, engines and their tools', [], [], { examples: ['declick doctor --fields blocking,warnings'] }),
+  C('daemon', 'keep stdio MCP servers warm between runs: start, stop or status', [P('action', false)], [],
+    { mutating: true, examples: ['declick daemon start', 'declick daemon status', 'declick daemon stop'] }),
   C('auth', 'which env keys a verb needs, and where each one is read from', [P('name')], [], { examples: ['declick auth petstore'] }),
   C('engines', 'the engines this build has, or what one source would compile to', [],
     [F('source', 'string', 'classify a source without writing anything', 'x')], { examples: ['declick engines', 'declick engines --source ./spec.json'] }),
@@ -302,6 +305,7 @@ async function doctor() {
   const d = deskState();
   const adapters = listManifests();
   const probes = await toolProbes();
+  const dmn = await daemonStatus();
   // sqlite is both a compile target (ENGINE_INFO) and a runtime tool probe (node:sqlite); merge into one row.
   const probeByName = new Map(probes.map(p => [p.name, p]));
   const engineRows = ENGINE_INFO.map(e => probeByName.has(e.name) ? { ...e, ready: probeByName.get(e.name).ready, note: probeByName.get(e.name).note } : e);
@@ -313,6 +317,8 @@ async function doctor() {
     vault: { path: vaultPath(), exists: existsSync(vaultPath()) },
     desk: d,
     claude: { path: claude, found: !!claude, note: 'needed for declick add --goal / author / repair' },
+    // Not a problem either way: warm servers are an optimisation, and a cold run is the same run one spawn slower.
+    daemon: { running: dmn.running, pid: dmn.pid, servers: dmn.servers.length, note: 'declick daemon start keeps stdio MCP servers warm between runs' },
     governance: await governanceState(),
     // Engines and the external tools they can use, in one list: one call answers "what can I build from this machine".
     engines: [...engineRows, ...probes.filter(p => !ENGINE_INFO.some(e => e.name === p.name))],
@@ -424,6 +430,10 @@ function describeText(m, { full, only, grep }) {
   if (i > -1) lines[i] = common; else lines.push(common);
   return lines.join('\n');
 }
+
+// The daemon body, started detached by `declick daemon start` and never typed by hand: the flag stays out of
+// COMMANDS on purpose, so help, the skill and the flag check describe only what a person or an agent runs.
+if (process.argv[2] === SERVE_FLAG) { await serveDaemon(); process.exit(process.exitCode ?? 0); }
 
 const raw = process.argv.slice(2);
 let flags = {}, positional = [];
@@ -615,6 +625,25 @@ try {
       const d = await doctor(); text = JSON.stringify(d, null, 2);
       // A warning is worth saying out loud without failing the command: ok stays true and the exit code stays 0.
       result = d.blocking.length ? { ok: false, exit: EXIT.ERROR, error: d.blocking.join('; '), data: d } : { ok: true, data: d }; break;
+    }
+    case 'daemon': {
+      const action = arg ?? 'status';
+      if (!['start', 'stop', 'status'].includes(action)) fail(`unknown daemon action ${action}; use start, stop or status`);
+      if (action === 'start') {
+        const s = await daemonStart();
+        result = { ok: true, data: s }; text = `daemon ${s.already ? 'already running as' : 'started, pid'} ${s.pid} on ${s.endpoint}`; break;
+      }
+      if (action === 'stop') {
+        const s = await daemonStop();
+        // Nothing to stop is not a failure of the command, but an agent that asked has to be able to tell.
+        result = s ? { ok: true, data: { stopped: true, ...s } } : { ok: false, exit: EXIT.NOT_FOUND, error: 'no daemon is running', data: { stopped: false } };
+        text = s ? `daemon ${s.pid} stopped` : 'no daemon is running'; break;
+      }
+      const s = await daemonStatus();
+      result = s.running ? { ok: true, data: s } : { ok: false, exit: EXIT.NOT_FOUND, error: 'no daemon is running; run: declick daemon start', data: s };
+      text = s.running
+        ? [`daemon ${s.pid} since ${s.started}`, ...s.servers.map(x => `  ${x.adapter}  pid ${x.pid}  ${x.calls} calls  idle ${Math.round(x.idleMs / 1000)}s`)].join('\n')
+        : 'no daemon is running'; break;
     }
     case 'auth': {
       const m = loadManifest(arg);

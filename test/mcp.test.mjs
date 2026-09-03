@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.CREDS_VAULT = join(tmpdir(), `declick-mcp-none-${process.pid}.env`); // never read the real vault
+process.env.DECLICK_HOME = mkdtempSync(join(tmpdir(), 'declick-mcp-')); // and never the developer's own warm daemon
 const { compile, execute } = await import('../src/engines/mcp.mjs');
 import { validateManifest } from '../src/manifest.mjs';
 import { lint } from '../src/lint.mjs';

@@ -2,8 +2,14 @@
 // A real MCP stdio server with zero dependencies: JSON-RPC 2.0 over stdin/stdout, newline-delimited.
 // test/mcp.test.mjs spawns this as an actual child process, so nothing about the transport is mocked.
 // Pass --framing content-length to answer with LSP-style framing instead of one JSON object per line.
+// Pass --blob to add one more tool that answers with as many bytes as it is asked for; off by default, so the
+// three-tool list every other test asserts on is unchanged.
+// Pass --slow-start <ms> to hold the initialize answer for that long. This fixture starts instantly and a real
+// MCP server does not, so test/daemon.test.mjs uses it to give a spawn the cost the warm pool exists to avoid.
 
-const framing = process.argv.includes('--framing') ? process.argv[process.argv.indexOf('--framing') + 1] : 'ndjson';
+const arg = (name, fallback) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback);
+const framing = arg('--framing', 'ndjson');
+const slowStart = Number(arg('--slow-start', 0)) || 0;
 
 const TOOLS = [
   {
@@ -44,6 +50,10 @@ const TOOLS = [
   },
   { name: 'boom', description: 'Always reports a tool error', inputSchema: { type: 'object', properties: {} } },
 ];
+if (process.argv.includes('--blob')) TOOLS.push({
+  name: 'blob', description: 'Return a payload of the requested size', annotations: { readOnlyHint: true },
+  inputSchema: { type: 'object', required: ['bytes'], properties: { bytes: { type: 'integer', description: 'how many bytes to return' } } },
+});
 
 const send = msg => {
   const body = JSON.stringify(msg);
@@ -59,13 +69,15 @@ function call(name, args = {}) {
   }
   if (name === 'add_note') return { content: [{ type: 'text', text: JSON.stringify({ id: 'n3', echo: args }) }] };
   if (name === 'boom') return { content: [{ type: 'text', text: 'boom: the note book is on fire' }], isError: true };
+  if (name === 'blob') return { content: [{ type: 'text', text: JSON.stringify({ bytes: args.bytes, blob: 'x'.repeat(args.bytes) }) }] };
   return null;
 }
 
 function handle(req) {
   const { id, method, params } = req;
   if (method === 'initialize') {
-    return send({ jsonrpc: '2.0', id, result: { protocolVersion: '2025-03-26', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'fixture-notes', version: '0.0.1' } } });
+    const answer = () => send({ jsonrpc: '2.0', id, result: { protocolVersion: '2025-03-26', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'fixture-notes', version: '0.0.1' } } });
+    return slowStart ? setTimeout(answer, slowStart) : answer();
   }
   if (id === undefined || id === null) return; // notification
   if (method === 'tools/list') return send({ jsonrpc: '2.0', id, result: { tools: TOOLS } });

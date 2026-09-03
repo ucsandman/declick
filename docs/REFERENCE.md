@@ -206,6 +206,24 @@ Run time: each step runs as `node bin/run.mjs <adapter> <verb> --json=true [--dr
 
 For an openapi verb whose response content-type is `text/event-stream`, `data` is an array of `{ event?, id?, data }` objects (SSE `data:` lines joined with `\n`, JSON payloads parsed, everything else a string) and the envelope carries `meta.stream: { events, complete, truncatedByTimeout, ms }`. When the `--timeout` or `DECLICK_TIMEOUT_MS` budget runs out before the stream ends, `complete` is false, `truncatedByTimeout` and the top-level `meta.truncated` are true, the events already received are returned, and the exit code stays 0. `--retry` never applies once a stream has started.
 
+## Warm MCP servers (`daemon.json`)
+
+`declick daemon start` spawns a detached process that keeps stdio MCP servers alive between runs, so only the first call pays the server's startup. HTTP MCP adapters have no process to keep and never use it.
+
+| Command | Answer |
+|---|---|
+| `declick daemon start` | `{running, pid, endpoint, started, already}`. Idempotent: a daemon that is already up is returned with `already: true` |
+| `declick daemon status` (or no action) | `{running, pid, started, endpoint, servers:[{adapter, pid, calls, idleMs}]}`; exit 2 with `running: false` when nothing is running |
+| `declick daemon stop` | sends a shutdown and waits for the process to go; exit 2 when nothing is running |
+
+`~/.declick/daemon.json` is `{pid, endpoint, token, started}`, written when the daemon starts listening and deleted when it stops. `endpoint` is `\\.\pipe\declick-<user>-<hash of DECLICK_HOME>` on Windows and `<DECLICK_HOME>/daemon.sock` elsewhere; the hash keeps two homes on one machine from sharing a daemon. On macOS and Linux both the socket and `daemon.json` are chmod 0600. On Windows a file mode is only the read-only bit, so what keeps the endpoint to one user there is the per-user pipe name plus the token, not the mode. A `daemon.json` whose `pid` is no longer alive is a crash, not a daemon, and every reader treats it as not running.
+
+The protocol is newline-delimited JSON, one request per connection: `{token, op, adapter, verb, tool, args}` in, `{result}`, `{status}` or `{error}` out. Every message carries the token; a wrong one is answered `{"error":"unauthorized"}` and nothing else, and the token appears in no reply, log or `doctor` output. Servers are pooled by adapter name plus a hash of the command, its arguments and the adapter's auth key names, so a rebuild with a different command gets a new server. Calls that race a cold pool share the one server being started rather than starting one each. A server that crashes is dropped and respawned on the next call; a server idle for `DECLICK_DAEMON_IDLE_MS` (default 600000) is dropped, and a daemon with no servers for the same window exits.
+
+A pooled server inherits the daemon's environment, taken at `daemon start`, not the environment of the run that reaches it. `DECLICK_TIMEOUT_MS` set for one run still bounds that run's wait on the socket.
+
+On the run side, an mcp verb tries the daemon first with a 300 ms connect budget and falls back to spawning its own server when nothing answers; a run served by the daemon carries `meta.daemon: true`. A `--each` batch uses the daemon for every item, but its envelope is the batch's own `{count, failed, each}`, so `meta.daemon` is not reported per item. The daemon is a cache, not a policy boundary: flag checking, `defaults.json`, the local policy, the governance guard and the audit line all still run in `bin/run.mjs`, on the client side of the socket.
+
 ## Environment variables
 
 | Variable | Effect |
@@ -230,6 +248,7 @@ For an openapi verb whose response content-type is `text/event-stream`, `data` i
 | `DECLICK_ENV_ALLOW` | Comma-separated key names allowed to cross origins |
 | `DECLICK_<NAME>_BASE_URL` | Per-adapter base URL override |
 | `DECLICK_TIMEOUT_MS` | mcp and http client timeout default |
+| `DECLICK_DAEMON_IDLE_MS` | how long a pooled MCP server, and then the daemon itself, may sit unused before exiting, default 600000 |
 | `DECLICK_CDP` | Attach to a running Chrome or Edge instead of launching one |
 | `CHROME` | Browser binary path for the web engine |
 | `DECLICK_LIVE` | Opt in to the desktop and web tests that drive real windows and browsers |
