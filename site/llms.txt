@@ -1,12 +1,12 @@
 # declick
 
-> Turn anything into a CLI so your agents stop clicking. declick compiles any of ten sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, a native Windows window, or a chain of verbs from adapters already built, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 34 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
+> Turn anything into a CLI so your agents stop clicking. declick compiles any of ten sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, a native Windows window, or a chain of verbs from adapters already built, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 35 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
 
 - [Source](https://github.com/ucsandman/declick): the repository
 - [Package](https://www.npmjs.com/package/declick): the published package
 - Install: npm i -g declick (Node 24 or newer); declick setup wires it into the agents on the machine (PATH, MCP-server adapters, a rules block, the Claude Code hook); declick setup --revert undoes it byte for byte, and declick uninstall --yes removes it entirely
 - License: 0.3.0 on npm is MIT; releases after it are under the Elastic License 2.0. Free for individuals and companies under ten people; ten or more buy seats at $19 per developer per month or $190 per year; production support is $2,000 per year per company; both bought with a card at https://declick.dev/#license, the license arrives by email within a minute of paying
-- Contract: describe under 500 tokens, --json default when piped, --fields (dotted paths), --limit, --rows, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw (strict by default once DASHCLAW_API_KEY is set), auth by env key name scoped to its adapter's origin, generated SKILL.md per adapter plus one for declick itself
+- Contract: describe under 500 tokens, --json default when piped, --fields (dotted paths), --limit, --rows, --where k=v, --max-bytes N, --cache <s>, --dry-run, exit codes 0 ok 1 error 2 not found 3 blocked 4 auth, mutating verbs gated by DashClaw (strict by default once DASHCLAW_API_KEY is set), auth by env key name scoped to its adapter's origin, generated SKILL.md per adapter plus one for declick itself
 - Engines, all built in with zero runtime dependencies: openapi (OpenAPI 3 and Swagger 2, JSON or YAML), graphql, mcp (stdio and streamable HTTP), postman (Postman v2.1 and Insomnia v4), har, sqlite (tables/views to list/get/insert/update/delete plus query), cli (compiled from a tool's own --help), web (a real browser over CDP; a miss returns page elements, never a screenshot), desktop (native Windows via deskclaw UI Automation, deterministic recipe replay, authoring and repair through a bounded Claude Code session), compose (compose:<chain.json>; a chain of verbs from adapters already built becomes one verb, every step still its own guarded, audited command)
 - declick engines --source <x> says which engine a source would land on before anything is written
 
@@ -22,8 +22,9 @@
 - declick desk windows | tree <window> [--depth N --type T --grep re --interactive] | read <window> <path> [--prop p] | clipboard get|set | arm [minutes] | disarm
 - declick web tree <url> [--selector css] [--grep re] | web text <url> [--grep re]   a page as a tree of elements, interactive ones first, or its visible text as numbered lines; --grep exits 2 when nothing matches
 - declick compose <n> [--steps file|-] | defaults <n> [--verb v] [--set k=v] [--unset k] [--clear] | policy [--check <n> <verb>] [--example]   chain verbs into one, flag defaults per adapter, the local policy file
-- declick audit [--adapter n] [--since t] [--failed]   the run log: what ran, what governance decided
+- declick audit [--adapter n] [--since t] [--failed] [--sum]   the run log: what ran, what governance decided; --sum adds it up by adapter and in total
 - declick ui [--port N] [--open] [--allow-authoring]   local page with add, build, repair, remove
+- declick daemon start|stop|status   keep stdio MCP servers warm between calls, so only the first run pays a server's startup
 
 ## Output
 
@@ -50,6 +51,8 @@
 - mcp and graphql against a private server read a bearer from <NAME>_TOKEN.
 - declick ui listens on 127.0.0.1 only.
 - New in 0.5.0: a compose engine that chains verbs from adapters already built into one verb, --each batch input on any verb, per-adapter flag defaults, a local policy.json (allow, warn, block; first match wins; no service needed), declick web text --grep, and SSE responses returned as parsed events.
-- Not shipped in 0.5.1: a macOS or Linux desktop backend.
+- New in 0.6.0: --where k=v to filter a list before --fields and --limit, a default 8192-byte ceiling on data moved by --max-bytes N or DECLICK_MAX_BYTES, --cache <s> to answer a read-only verb from a stored response, declick audit --sum to add the run log up by adapter, and declick daemon start to keep stdio MCP servers warm between calls.
+- Nine real stdio MCP servers, 258 tools: raw initialize plus tools/list is 236,818 bytes, declick describe is 58,309 bytes, a 4.1x reduction (docs/bench.md, node scripts/bench-tokens.mjs). A warm daemon answers a server that takes 600ms to start in 59ms instead of 703ms cold.
+- Not shipped in 0.6.0: a macOS or Linux desktop backend.
 
-- [Control matrix](https://declick.dev/controls): the controls in 0.5.1 and the command that verifies each one
+- [Control matrix](https://declick.dev/controls): the controls in 0.6.0 and the command that verifies each one

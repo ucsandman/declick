@@ -32,7 +32,7 @@
   "@type": "SoftwareApplication",
   "name": "declick",
   "applicationCategory": "DeveloperApplication",
-  "softwareVersion": "0.5.1",
+  "softwareVersion": "0.6.0",
   "description": "Compile an OpenAPI spec, GraphQL API, MCP server, Postman collection, HAR capture, SQLite file, another CLI, a browser page, or a Windows app into a command line tool that returns one envelope with five exit codes.",
   "url": "https://declick.dev/",
   "softwareRequirements": "Node 24 or newer",
@@ -81,18 +81,19 @@ run: petstore &lt;verb&gt; [args] [--flags]   or: declick run petstore &lt;verb&
   get-user-by-name &lt;username&gt;   Get user by user name.
   update-user &lt;username&gt;        Update user resource. [mutating]
   delete-user &lt;username&gt;        Delete user resource. [mutating]
-common: --json --fields --limit --dry-run --full --help   exit: 0 ok 1 err 2 missing 3 blocked 4 auth
+common: --json --fields --limit --where --dry-run --full --help   exit: 0 ok 1 err 2 missing 3 blocked 4 auth
 auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 <figcaption><span class="cap"><code>declick describe petstore</code>, 1,583 characters, 19 verbs</span><span class="chip">exit 0</span></figcaption>
 </figure>
 </div>
 </div>
 <figure class="block">
-<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.5.1","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
+<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.6.0","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
 <figcaption><span class="cap"><code>declick version --json</code></span><span class="chip">exit 0</span></figcaption>
 </figure>
 <nav class="links secnav" aria-label="Sections of this page">
 <a href="#contract">the envelope</a>
+<a href="#less">less in the context</a>
 <a href="#errors">errors</a>
 <a href="#describe">describe</a>
 <a href="#dry-run">dry run</a>
@@ -111,7 +112,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 
 <section class="sec" id="contract">
 <h2 class="head-gap">One envelope, and it does not vary by engine</h2>
-<p class="prose head-gap"><code>--json</code> is the default when stdout is not a TTY, so an agent gets structured output without asking. Success carries <code>data</code> plus <code>meta.count</code> and <code>meta.truncated</code>. Failure carries the error string and the exit code, and <code>data</code> too when the engine has a payload, such as an API error body or a desktop tree diff. <code>--fields</code> projects named fields and takes dotted paths like <code>error.code</code> or <code>items.0.name</code>. <code>--limit</code> caps a list at 50 by default. <code>--rows</code> unwraps a nested array and records the path in <code>meta.rows</code> while <code>meta.extra</code> keeps the siblings. <code>--each file</code> runs a verb once per item in a file or stdin and answers with one envelope, <code>meta.count</code> and <code>meta.failed</code> covering the whole batch. <code>~/.declick/&lt;name&gt;/defaults.json</code> supplies flags you would otherwise retype on every call, and a run that used one lists the keys in <code>meta.defaults</code>. Both <code>--flag value</code> and <code>--flag=value</code> parse, boolean flags never eat the next argument, and an unknown flag is exit 1, never ignored. The shape is identical across all ten engines and across declick's own commands.</p>
+<p class="prose head-gap"><code>--json</code> is the default when stdout is not a TTY, so an agent gets structured output without asking. Success carries <code>data</code> plus <code>meta.count</code> and <code>meta.truncated</code>. Failure carries the error string and the exit code, and <code>data</code> too when the engine has a payload, such as an API error body or a desktop tree diff. <code>--fields</code> projects named fields and takes dotted paths like <code>error.code</code> or <code>items.0.name</code>. <code>--limit</code> caps a list at 50 by default. <code>--rows</code> unwraps a nested array and records the path in <code>meta.rows</code> while <code>meta.extra</code> keeps the siblings. <code>--where k=v</code> narrows a list before <code>--fields</code> and <code>--limit</code> run, <code>--max-bytes N</code> caps what <code>data</code> can carry, and <code>--cache &lt;s&gt;</code> answers a read-only verb from a stored response instead of calling the engine again; the section below has the detail. <code>--each file</code> runs a verb once per item in a file or stdin and answers with one envelope, <code>meta.count</code> and <code>meta.failed</code> covering the whole batch. <code>~/.declick/&lt;name&gt;/defaults.json</code> supplies flags you would otherwise retype on every call, and a run that used one lists the keys in <code>meta.defaults</code>. Both <code>--flag value</code> and <code>--flag=value</code> parse, boolean flags never eat the next argument, and an unknown flag is exit 1, never ignored. The shape is identical across all ten engines and across declick's own commands.</p>
 <div class="split head-gap">
 <figure class="block">
 <figcaption class="lab">success</figcaption>
@@ -145,6 +146,20 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 </figure>
 </div>
 </div>
+</section>
+
+<section class="sec" id="less">
+<h2 class="head-gap">Less lands in the context, and it is measured</h2>
+<p class="prose head-gap"><code>--where k=v</code> filters a list on the machine that has it, before <code>--fields</code> and <code>--limit</code> run. It is repeatable and comma-separable, takes dotted paths, and every condition has to hold: eight operators, <code>k=v</code>, <code>k!=v</code>, <code>k~re</code> (case-insensitive regex), <code>k&gt;n</code>, <code>k&gt;=n</code>, <code>k&lt;n</code>, <code>k&lt;=n</code>, and <code>k=*</code> for present and not null. <code>meta.where</code> reports <code>{matched, of}</code>, and <code>meta.count</code> is what matched.</p>
+<p class="prose"><code>data</code> also carries a ceiling: 8192 bytes by default, moved for every call with <code>DECLICK_MAX_BYTES</code> or for one with <code>--max-bytes N</code>, and turned off with <code>0</code>. Over the cap a list drops tail rows and keeps at least one, a string is sliced, and an object keeps every key with its biggest values replaced by <code>&lt;N bytes; add --fields or --limit&gt;</code>, so the shape needed to write a <code>--fields</code> survives the cut. <code>meta.capped</code> names the size with a hint, <code>meta.truncated</code> is true, and the exit code stays 0; the cap never touches <code>--dry-run</code>, <code>--help</code> or <code>describe</code>.</p>
+<p class="prose"><code>--cache &lt;seconds&gt;</code> on a read-only verb answers from the response the wire already gave. The key is the adapter, the verb, its positional args and its own flags, not <code>--fields</code> or <code>--limit</code>, so the same call shaped four ways reads one stored entry. And now that every audit line carries <code>bytes</code>, <code>declick audit --sum</code> adds the run log up instead of listing it, one row per adapter and a total: <code>212 calls, 340.2 KB read through adapters, 3 failed</code>.</p>
+<p class="prose"><code>declick daemon start</code> keeps stdio MCP servers warm in a detached per-user process, so only the first <code>declick run &lt;mcp adapter&gt; &lt;verb&gt;</code> pays a server's startup. A run tries the daemon with a 300ms connect budget and falls back to spawning its own server when nothing answers, so nothing breaks when the daemon is not up; the endpoint is a per-user named pipe on Windows or a 0600 socket elsewhere, plus a token, and a served run carries <code>meta.daemon: true</code>.</p>
+<figure class="block head-gap">
+<pre tabindex="0" role="group" aria-label="Token cost: raw MCP tool listings vs declick describe"><code><span class="cmd"><span class="sig">$</span> node scripts/bench-tokens.mjs</span>
+<span class="out">adapter                             tools  raw init+tools/list   declick describe   ratio
+nine stdio MCP servers, combined      258        236,818 bytes         58,309 bytes    4.1x</span></code></pre>
+<figcaption><span class="cap">Measured against nine real stdio MCP servers, full breakdown in <code>docs/bench.md</code>. A single call's payload is not smaller through declick, 0.8x on the fs server; the saving is paying once for the surface listing instead of every tool description riding in the prompt.</span></figcaption>
+</figure>
 </section>
 
 <section class="sec" id="errors">
@@ -537,7 +552,7 @@ export async function declick(adapter, verb, args = []) {
 
 <section class="sec" id="commands">
 <h2 class="head-gap">declick honors the contract it compiles</h2>
-<p class="prose head-gap">All 34 commands take <code>--json</code> and return the same envelope. <code>declick commands</code> prints the table as data: every command with its positionals, its flags, whether it mutates, whether it previews, and runnable examples. The shipped declick skill is rendered from that same table, so what an agent reads cannot drift from what the binary does. An agent with only a shell can compile, inspect, run, repair and audit. <code>declick ui</code> serves one page on 127.0.0.1 with the same buttons, for the parts a human should decide.</p>
+<p class="prose head-gap">All 35 commands take <code>--json</code> and return the same envelope. <code>declick commands</code> prints the table as data: every command with its positionals, its flags, whether it mutates, whether it previews, and runnable examples. The shipped declick skill is rendered from that same table, so what an agent reads cannot drift from what the binary does. An agent with only a shell can compile, inspect, run, repair and audit. <code>declick ui</code> serves one page on 127.0.0.1 with the same buttons, for the parts a human should decide.</p>
 <div class="split head-gap">
 <div>
 <figure class="block">
@@ -572,6 +587,7 @@ export async function declick(adapter, verb, args = []) {
 <li>list <span class="dim">every adapter with its engine, verbs and auth keys</span></li>
 <li>status <span class="dim">last run, last error with tree diff, proposals and recipes</span></li>
 <li>doctor <span class="dim">node, home, PATH, deskclaw, claude, vault, engines and their tools</span></li>
+<li>daemon <span class="dim">start|stop|status: keep stdio MCP servers warm so a run answers in 59ms instead of paying the server's startup every time</span></li>
 <li>setup <span class="dim">wire declick into the agents on this machine: PATH, adapters, rules, hook; <code>--revert</code> undoes it byte for byte</span></li>
 <li>uninstall <span class="dim">revert setup if it ran, then delete ~/.declick and print the npm rm -g line</span></li>
 <li>auth <span class="dim">which env keys a verb needs, and where each one is read from</span></li>
@@ -594,19 +610,19 @@ export async function declick(adapter, verb, args = []) {
 <li>version <span class="dim">the declick and node versions</span></li>
 <li>help <span class="dim">the usage table, or one command row</span></li>
 </ul>
-<p class="note"><code>declick commands --json</code> returns <code>"meta":{"count":34,"truncated":false}</code>.</p>
+<p class="note"><code>declick commands --json</code> returns <code>"meta":{"count":35,"truncated":false}</code>.</p>
 </div>
 </div>
 <figure class="block">
 <pre tabindex="0" role="group" aria-label="First line of declick describe declick"><code><span class="cmd"><span class="sig">$</span> declick describe declick</span>
-<span class="out">declick 0.5.1: turn anything into a CLI so your agents stop clicking</span></code></pre>
+<span class="out">declick 0.6.0: turn anything into a CLI so your agents stop clicking</span></code></pre>
 <figcaption><span class="cap">The first line of the text form.</span><span class="chip">exit 0</span></figcaption>
 </figure>
 </section>
 
 <section class="sec" id="requirements">
-<h2 class="head-gap">What it needs, and what 0.5.1 does not do</h2>
-<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.5.1: a macOS or Linux desktop backend.</p>
+<h2 class="head-gap">What it needs, and what 0.6.0 does not do</h2>
+<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.6.0: a macOS or Linux desktop backend.</p>
 <div class="split head-gap">
 <div>
 <table>
@@ -627,7 +643,7 @@ export async function declick(adapter, verb, args = []) {
 <div>
 <table>
 <thead>
-<tr><th scope="col">not in 0.5.1</th><th scope="col">status</th></tr>
+<tr><th scope="col">not in 0.6.0</th><th scope="col">status</th></tr>
 </thead>
 <tbody>
 <tr><td>macOS or Linux desktop backend</td><td><span class="chip">not shipped</span></td></tr>
@@ -656,7 +672,7 @@ export async function declick(adapter, verb, args = []) {
 <h2 class="head-gap">Four commands to a working adapter</h2>
 <div class="pane head-gap">
 <div>
-<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.5.1 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
+<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.6.0 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
 </div>
 <div>
 <figure class="block">
@@ -686,7 +702,7 @@ run: petstore &lt;verb&gt; [args] [--flags]   or: declick run petstore &lt;verb&
 </main>
 <footer>
 <div class="wrap">
-<p>declick 0.5.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p>declick 0.6.0. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
 <p class="links no-print"><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a><a href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
 </div>
 </footer>
