@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-09-03)
 
 Five answers to the same problem, that an API sends more than the agent asked for and the whole of it lands in the context, plus warm MCP servers so the second call stops paying the first one's startup. The savings are measured: `scripts/bench-tokens.mjs` against nine real MCP servers (258 tools) puts the raw tool listing at 236,818 bytes and `declick describe` at 58,309, a 4.1x reduction (docs/bench.md). 631 tests pass.
 
