@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Skills From Any API: One SKILL.md per Tool | declick</title>
+<meta name="description" content="Generate Claude skills, and agent skills for Codex, Hermes and OpenClaw, from an OpenAPI spec, an MCP server, a GraphQL API or a SQLite database. declick add writes one SKILL.md per adapter into every skills directory on the machine, and declick skill --print emits it for an AGENTS.md.">
+<link rel="canonical" href="https://declick.dev/claude-skills">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://declick.dev/claude-skills">
+<meta property="og:title" content="Claude skills from any API: generate a SKILL.md per tool">
+<meta property="og:description" content="One SKILL.md per adapter, written into every agent skills directory on the machine, generated from the compiled manifest so it cannot drift from what the tool does.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Claude skills from any API: generate a SKILL.md per tool">
+<meta name="twitter:description" content="One SKILL.md per adapter, written into every agent skills directory on the machine, generated from the compiled manifest so it cannot drift from what the tool does.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<script defer src="/_vercel/insights/script.js"></script>
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Claude skills from any API: generate a SKILL.md per tool",
+  "description": "One SKILL.md per adapter, written into every agent skills directory on the machine, generated from the compiled manifest so it cannot drift from what the tool does.",
+  "url": "https://declick.dev/claude-skills",
+  "datePublished": "2026-09-04",
+  "dateModified": "2026-09-04",
+  "author": { "@type": "Person", "name": "Wes Sander", "url": "https://x.com/ucsandman" },
+  "publisher": { "@type": "Organization", "name": "Practical Systems", "url": "https://www.practicalsystems.io/" },
+  "about": { "@type": "SoftwareApplication", "name": "declick", "url": "https://declick.dev/" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/guides">All guides</a></p>
+<h1 class="head-gap">Claude skills from any API: generate a SKILL.md per tool</h1>
+<p class="lead prose head-gap">A Claude skill is a folder holding a <code>SKILL.md</code> that tells Claude Code when to use a tool and how. declick writes one for every adapter it compiles, from an OpenAPI spec, an MCP server, a GraphQL API, a Postman collection, a SQLite database or a Windows app, and puts it in every agent skills directory on the machine: Claude Code, Codex, Hermes and OpenClaw. The skill is generated from the compiled manifest, so what the agent reads cannot drift from what the command does.</p>
+<p class="facts"><span>version <b>0.6.1</b></span><span>skills per adapter <b>1</b></span><span>agents <b>Claude Code, Codex, Hermes, OpenClaw</b></span></p>
+<p class="note">Written by Wes Sander, who built declick. Updated 2026-09-04. Commands and file paths on this page are the ones in the README for declick 0.6.1.</p>
+</section>
+
+<section class="sec" id="what-is-a-skill">
+<h2 class="head-gap">What is a Claude skill, and what is a SKILL.md?</h2>
+<p class="prose head-gap">A Claude skill is a directory under <code>~/.claude/skills</code> containing a <code>SKILL.md</code> file, and Claude Code reads that file to decide when the skill applies and what to run. The file has a front matter block with a <code>name</code> and a <code>description</code>, and a body of instructions. Codex reads the same layout from <code>~/.codex/skills</code>, Hermes from <code>~/.hermes/skills</code> and OpenClaw from <code>~/.openclaw/skills</code>, which is why the term agent skills covers all four. Writing one by hand per API is the same work as writing a wrapper per API: it goes stale the day the API changes.</p>
+</section>
+
+<section class="sec" id="what-declick-writes">
+<h2 class="head-gap">What does declick put in a generated skill?</h2>
+<p class="prose head-gap">A generated skill contains five things, all rendered from the adapter's manifest: when to use the adapter, the output of <code>declick describe</code> for it, three runnable examples, the <code>declick run &lt;name&gt; &lt;verb&gt;</code> fallback for a shell where the launcher is not on PATH, and the exit codes that apply to that engine. It never overwrites a skill declick did not write. declick also writes its own skill beside the first adapter's, so an agent that finds one adapter knows how to build the next.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Compile a spec and get a skill"><code><span class="cmd"><span class="sig">$</span> declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore</span>
+<span class="out">writes ~/.declick/petstore/manifest.json
+writes ~/.declick/bin/petstore
+writes ~/.claude/skills/petstore/SKILL.md   (and ~/.codex/skills, ~/.hermes/skills, ~/.openclaw/skills when present)</span></code></pre>
+<figcaption><span class="cap">one add, three files, a skill in every agent directory that exists</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="where">
+<h2 class="head-gap">Where do the skills land, and can I choose?</h2>
+<p class="prose head-gap"><code>~/.claude/skills</code> is always written. <code>~/.codex/skills</code>, <code>~/.hermes/skills</code>, <code>~/.openclaw/skills</code> and <code>~/.agents/skills</code> are written when the directory already exists. declick never creates a directory for an agent you do not have. The <code>DECLICK_SKILLS</code> environment variable names any other list, comma separated. <code>declick path</code> reports where adapters, launchers and skills live on the current machine.</p>
+</section>
+
+<section class="sec" id="agents-md">
+<h2 class="head-gap">How do I get the skill into an AGENTS.md or a system prompt?</h2>
+<p class="prose head-gap"><code>declick skill &lt;name&gt; --print</code> writes one adapter's SKILL.md text to stdout instead of disk, for pasting into an AGENTS.md, a CLAUDE.md or an SDK agent's system prompt. <code>declick skill</code> with no name regenerates every skill from its manifest without refetching the source, which is the command to run after upgrading declick. <code>declick setup</code> goes further for the clients it finds: Claude Code gets a rules block and a PreToolUse hook, Codex and <code>~/.agents</code> get the rules block, and <code>declick setup --revert</code> removes all of it byte for byte.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Print or regenerate skills"><code><span class="cmd"><span class="sig">$</span> declick skill petstore --print</span>
+<span class="cmd"><span class="sig">$</span> declick skill</span>
+<span class="cmd"><span class="sig">$</span> declick skill --dry-run</span></code></pre>
+<figcaption><span class="cap">stdout for one, regenerate all, or list the paths that would be written</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="why-generated">
+<h2 class="head-gap">Why generate the skill instead of writing it?</h2>
+<p class="prose head-gap">Because a hand-written skill drifts and a generated one cannot. The shipped declick skill is rendered from the same command table that <code>declick commands</code> prints, and a test fails when the two disagree. An adapter skill is rendered from the manifest that the runtime executes, and <code>declick lint</code> fails a build whose <code>describe</code> passes 2,000 characters, so a skill never grows past what an agent can hold. Rebuild the adapter with <code>declick build &lt;name&gt;</code> and the skill follows.</p>
+<p class="links"><a href="/openapi-to-cli">Compile an OpenAPI spec into a CLI</a><a href="/mcp-cli">Run an MCP server from the command line</a><a href="/">Read the declick overview</a></p>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="/guides">All guides</a><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a></p>
+</div>
+</footer>
+</body>
+</html>

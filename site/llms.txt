@@ -55,4 +55,13 @@
 - Nine real stdio MCP servers, 258 tools: raw initialize plus tools/list is 236,818 bytes, declick describe is 58,309 bytes, a 4.1x reduction (docs/bench.md, node scripts/bench-tokens.mjs). A warm daemon answers a server that takes 600ms to start in 59ms instead of 703ms cold.
 - Not shipped in 0.6.0: a macOS or Linux desktop backend.
 
-- [Control matrix](https://declick.dev/controls): the controls in 0.6.0 and the command that verifies each one
+- [Control matrix](https://declick.dev/controls): the controls in 0.6.1 and the command that verifies each one
+
+## Guides
+
+- [MCP vs CLI for AI agents](https://declick.dev/mcp-vs-cli): nine real MCP servers, 258 tools, raw tool listing 236,818 bytes against a compiled describe of 58,309; what a CLI saves per prompt, what it does not save per call, when MCP is still the right choice
+- [Claude skills from any API](https://declick.dev/claude-skills): what a SKILL.md is, what declick generates into one, where it lands for Claude Code, Codex, Hermes and OpenClaw, and declick skill --print for an AGENTS.md
+- [OpenAPI generator for a CLI](https://declick.dev/openapi-to-cli): OpenAPI 3 or Swagger 2 spec to named verbs in four commands, the envelope, API keys by env name, subsetting a large spec, the difference from openapi-generator and Speakeasy
+- [MCP CLI](https://declick.dev/mcp-cli): compile a stdio or streamable HTTP MCP server, list its tools without an inspector, call one from bash with the result trimmed, keep the server warm with declick daemon
+- [SQLite CLI for AI agents](https://declick.dev/sqlite-cli): a .db file becomes list, get, insert, update and delete verbs per table plus a read-only query with --sql and --param; --where before the model sees a row, --dry-run on every write
+- [All guides](https://declick.dev/guides)

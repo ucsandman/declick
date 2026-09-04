@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SQLite CLI for AI Agents: Tables Become JSON Verbs | declick</title>
+<meta name="description" content="A SQLite CLI built for an AI agent rather than a person: declick compiles a .db file into list, get, insert, update and delete verbs per table plus a parameterized query verb, all returning one JSON envelope with five exit codes and a dry run on every write. Node 24, zero runtime dependencies.">
+<link rel="canonical" href="https://declick.dev/sqlite-cli">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://declick.dev/sqlite-cli">
+<meta property="og:title" content="SQLite CLI for AI agents: tables become verbs with JSON output">
+<meta property="og:description" content="Compile a .db file into list, get, insert, update and delete verbs per table plus a parameterized query, all returning one JSON envelope with a dry run on every write.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SQLite CLI for AI agents: tables become verbs with JSON output">
+<meta name="twitter:description" content="Compile a .db file into list, get, insert, update and delete verbs per table plus a parameterized query, all returning one JSON envelope with a dry run on every write.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<script defer src="/_vercel/insights/script.js"></script>
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "SQLite CLI for AI agents: tables become verbs with JSON output",
+  "description": "Compile a .db file into list, get, insert, update and delete verbs per table plus a parameterized query, all returning one JSON envelope with a dry run on every write.",
+  "url": "https://declick.dev/sqlite-cli",
+  "datePublished": "2026-09-04",
+  "dateModified": "2026-09-04",
+  "author": { "@type": "Person", "name": "Wes Sander", "url": "https://x.com/ucsandman" },
+  "publisher": { "@type": "Organization", "name": "Practical Systems", "url": "https://www.practicalsystems.io/" },
+  "about": { "@type": "SoftwareApplication", "name": "declick", "url": "https://declick.dev/" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/guides">All guides</a></p>
+<h1 class="head-gap">SQLite CLI for AI agents: tables become verbs with JSON output</h1>
+<p class="lead prose head-gap">The <code>sqlite3</code> shell is built for a person: free-form SQL in, a text table out, and no exit code that tells a program what went wrong. declick compiles a SQLite file into a CLI built for an agent. Every table and view becomes <code>list-&lt;table&gt;</code>, <code>get-&lt;table&gt;</code>, <code>insert-&lt;table&gt;</code>, <code>update-&lt;table&gt;</code> and <code>delete-&lt;table&gt;</code> verbs, a read-only <code>query</code> verb with <code>--sql</code> and repeatable <code>--param</code> covers the rest, and every call returns the same JSON envelope with the same five exit codes as an API or an MCP server compiled by the same tool.</p>
+<p class="facts"><span>source <b>sqlite:&lt;path&gt; or data.db</b></span><span>verbs per table <b>5</b></span><span>plus <b>query</b></span><span>node <b>&gt;=24</b></span></p>
+<p class="note">Written by Wes Sander, who built declick. Updated 2026-09-04. The engine table and the output contract on this page are the ones in the README for declick 0.6.1.</p>
+</section>
+
+<section class="sec" id="compile">
+<h2 class="head-gap">How do I turn a SQLite database into a CLI?</h2>
+<p class="prose head-gap">Point <code>declick add</code> at the file. A path ending in <code>.db</code> routes to the sqlite engine on its own, and the <code>sqlite:</code> prefix makes it explicit for any other name. declick introspects the schema, writes one manifest with the table verbs and the query verb, a launcher, and a <code>SKILL.md</code> into every agent skills directory on the machine. The engine is built in, so there is no native module to compile and no runtime dependency to install.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Compile a database"><code><span class="cmd"><span class="sig">$</span> declick add sqlite:./crm.db --name crm</span>
+<span class="cmd"><span class="sig">$</span> declick describe crm</span></code></pre>
+<figcaption><span class="cap">describe lists every table's five verbs plus query, under 2,000 characters</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="read">
+<h2 class="head-gap">How does an agent read rows without flooding its context?</h2>
+<p class="prose head-gap">It trims on the command line instead of in SQL. <code>--where k=v</code> filters a list before anything else and takes <code>=</code>, <code>!=</code>, <code>~re</code> for a case-insensitive regex, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code> and <code>=*</code> for present and not null. <code>--fields a,b</code> keeps named columns, <code>--limit N</code> caps the rows at 50 by default, and <code>--max-bytes N</code> caps <code>data</code> at 8,192 bytes, reporting <code>meta.capped</code> with a hint when it does. <code>meta.where</code> reports how many rows matched out of how many, so the agent knows what it did not see. <code>--cache &lt;s&gt;</code> answers a read from a stored response younger than that many seconds.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Read rows"><code><span class="cmd"><span class="sig">$</span> declick run crm list-customers --where status=open --fields id,name,email --limit 10</span>
+<span class="cmd"><span class="sig">$</span> declick run crm get-customers 7</span>
+<span class="cmd"><span class="sig">$</span> declick run crm query --sql "select count(*) as n from tickets where opened > ?" --param 2026-09-01</span></code></pre>
+<figcaption><span class="cap">filter, project and cap a list; one row by primary key; a read-only query with one bound parameter</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="write">
+<h2 class="head-gap">How are writes kept safe?</h2>
+<p class="prose head-gap">Every write verb previews. <code>insert</code>, <code>update</code> and <code>delete</code> accept <code>--dry-run</code>, print what they would do, set <code>meta.dryRun: true</code>, and change nothing. The manifest marks each verb <code>mutating: true</code> or <code>false</code>, and when <code>DASHCLAW_API_KEY</code> is set every mutating call goes through the DashClaw guard first, with the decision recorded in <code>meta.governance</code> and exit 3 on a block. A local <code>policy.json</code> with allow, warn and block rules works with no service at all. Every invocation writes one line to <code>~/.declick/audit.jsonl</code>, and <code>declick audit --sum</code> adds it up by adapter.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Preview a write"><code><span class="cmd"><span class="sig">$</span> declick run crm update-tickets 12 --status closed --dry-run</span>
+<span class="cmd"><span class="sig">$</span> declick run crm delete-tickets 12</span>
+<span class="cmd"><span class="sig">$</span> declick audit --adapter crm --failed</span></code></pre>
+<figcaption><span class="cap">preview, then the real call, then the log of what ran and what governance decided</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="batch">
+<h2 class="head-gap">Can one verb run over many rows?</h2>
+<p class="prose head-gap">Yes. <code>--each file</code> runs a verb once per item in a file of inputs, or from stdin with <code>-</code>, in order, and returns one envelope: <code>data</code> holds one entry per item and <code>meta</code> carries <code>count</code>, <code>failed</code> and <code>each: true</code>. Exit 0 when every item is ok, otherwise the exit of the first that was not. Each item is guarded and shaped on its own, a failing item does not stop the rest, and <code>--dry-run</code> previews every item.</p>
+<p class="links"><a href="/openapi-to-cli">Compile an OpenAPI spec into a CLI</a><a href="/claude-skills">Generate a SKILL.md per adapter</a><a href="/">Read the declick overview</a></p>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="/guides">All guides</a><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a></p>
+</div>
+</footer>
+</body>
+</html>

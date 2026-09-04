@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP vs CLI for AI Agents: the Context Cost, Measured | declick</title>
+<meta name="description" content="MCP vs CLI for an AI agent, measured on nine real MCP servers with 258 tools: the raw tool listing is 236,818 bytes, a compiled CLI describe is 58,309. What each one costs per prompt and per call.">
+<link rel="canonical" href="https://declick.dev/mcp-vs-cli">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://declick.dev/mcp-vs-cli">
+<meta property="og:title" content="MCP vs CLI for AI agents: the context cost, measured">
+<meta property="og:description" content="Nine real MCP servers, 258 tools: the raw tool listing is 236,818 bytes, a compiled CLI describe is 58,309. What each one costs per prompt and per call.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MCP vs CLI for AI agents: the context cost, measured">
+<meta name="twitter:description" content="Nine real MCP servers, 258 tools: the raw tool listing is 236,818 bytes, a compiled CLI describe is 58,309. What each one costs per prompt and per call.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<script defer src="/_vercel/insights/script.js"></script>
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "MCP vs CLI for AI agents: the context cost, measured",
+  "description": "Nine real MCP servers, 258 tools: the raw tool listing is 236,818 bytes, a compiled CLI describe is 58,309. What each one costs per prompt and per call.",
+  "url": "https://declick.dev/mcp-vs-cli",
+  "datePublished": "2026-09-04",
+  "dateModified": "2026-09-04",
+  "author": { "@type": "Person", "name": "Wes Sander", "url": "https://x.com/ucsandman" },
+  "publisher": { "@type": "Organization", "name": "Practical Systems", "url": "https://www.practicalsystems.io/" },
+  "about": { "@type": "SoftwareApplication", "name": "declick", "url": "https://declick.dev/" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/guides">All guides</a></p>
+<h1 class="head-gap">MCP vs CLI for AI agents: the context cost, measured</h1>
+<p class="lead prose head-gap">An MCP server charges the context window twice: its tool schemas ride in every prompt whether they are used or not, and every result lands whole. A CLI with a fixed output contract charges once, when the agent reads the surface, and lets the agent trim the result before it arrives. Measured on nine real MCP servers with 258 tools, the raw tool listing is 236,818 bytes and the compiled CLI describe is 58,309 bytes, a 4.1x difference.</p>
+<p class="facts"><span>measured <b>2026-09-03</b></span><span>servers <b>9</b></span><span>tools <b>258</b></span><span>method <b>docs/bench.md</b></span></p>
+<p class="note">Written by Wes Sander, who built declick. Updated 2026-09-04. Every number on this page comes from <code>node scripts/bench-tokens.mjs</code> in the <a href="https://github.com/ucsandman/declick/blob/main/docs/bench.md">declick repository</a>, where the method and its caveats are written up.</p>
+</section>
+
+<section class="sec" id="what-mcp-costs">
+<h2 class="head-gap">What does an MCP server cost an agent per prompt?</h2>
+<p class="prose head-gap">An MCP server costs its full tool list on every turn. When an MCP client connects, it calls <code>initialize</code> and <code>tools/list</code>, and the response, every tool name, description and JSON schema, goes into the model's context. It stays there for the whole session. Nine stdio servers on one machine, measured once each, came to 236,818 bytes of listing, roughly 59,000 tokens at four bytes per token. One server with 124 tools accounted for 94,525 bytes of that on its own.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Token cost table from docs/bench.md"><code><span class="out">adapter          tools   raw init+tools/list   declick describe   describe --verb   ratio
+agentcash-mcp       12          22,420 bytes        3,334 bytes       1,111 bytes    6.7x
+chrome-devtools     29          25,992 bytes        6,290 bytes       1,098 bytes    4.1x
+context7-mcp         2           5,954 bytes        1,300 bytes       1,086 bytes    4.6x
+dashclaw-mcp        19          22,030 bytes        4,560 bytes       1,183 bytes    4.8x
+fs                  14          13,128 bytes        4,506 bytes       1,299 bytes    2.9x
+offlocal           124          94,525 bytes       25,680 bytes       1,216 bytes    3.7x
+playwright-mcp      24          18,643 bytes        4,757 bytes       1,031 bytes    3.9x
+repowise-mcp         9          18,329 bytes        2,448 bytes       1,114 bytes    7.5x
+xapi                25          15,797 bytes        5,434 bytes       1,181 bytes    2.9x
+total              258         236,818 bytes       58,309 bytes      10,319 bytes    4.1x</span></code></pre>
+<figcaption><span class="cap">docs/bench.md, measured 2026-09-03, scanned=10 measured=9 skipped=1 failed=0</span><span class="chip">bytes / 4 = tokens</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="what-cli-costs">
+<h2 class="head-gap">What does the same server cost as a CLI?</h2>
+<p class="prose head-gap">Compiled to a CLI, the same nine servers cost 58,309 bytes for every verb on every adapter, and the agent does not read that whole. It reads <code>declick describe &lt;adapter&gt;</code> for the one adapter it needs, under 2,000 characters by contract, then <code>declick describe &lt;adapter&gt; --verb &lt;verb&gt;</code> for the one verb it is about to call. That per-verb read held between 1,031 and 1,299 bytes across servers with anywhere from 2 to 124 tools, because reading one tool's detail costs the same no matter how many others exist. That column is the number that generalizes. The whole-adapter ratio grows with tool count, the same way <code>tools/list</code> does.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Reading one adapter and one verb"><code><span class="cmd"><span class="sig">$</span> declick describe fs</span>
+<span class="cmd"><span class="sig">$</span> declick describe fs --verb read-file</span>
+<span class="cmd"><span class="sig">$</span> declick run fs read-file README.md --fields content --max-bytes 2000</span></code></pre>
+<figcaption><span class="cap">the surface once, one verb in detail, then a call with the result trimmed before it reaches the model</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="per-call">
+<h2 class="head-gap">Does a CLI make each call cheaper too?</h2>
+<p class="prose head-gap">No, not by itself. Per call, the CLI can cost slightly more: declick wraps every result in <code>{ok, data, meta}</code>, so <code>list-allowed-directories</code> on the filesystem server came back at 160 bytes raw and 191 bytes through declick. The per-call saving comes from trimming, which the agent controls: <code>--fields a,b</code> keeps named fields, <code>--limit N</code> caps a list, <code>--where k=v</code> filters it before either, and <code>--max-bytes N</code> puts an 8,192-byte ceiling on <code>data</code> by default. A raw MCP result has no equivalent. It lands whole.</p>
+</section>
+
+<section class="sec" id="when-mcp">
+<h2 class="head-gap">When is MCP the better choice?</h2>
+<p class="prose head-gap">MCP is the better choice when the agent has an MCP client and no shell, when a server exposes a handful of tools whose listing is small, or when the tool needs a stateful session the server holds open. A two-tool server measured 5,954 bytes raw, and the difference at that size is not worth an extra layer. A CLI is the better choice when the agent runs from a shell, when the server has dozens of tools, when results are large and need trimming, or when the same agent also needs an API, a database or a window, since every declick engine returns the same envelope and the same five exit codes.</p>
+</section>
+
+<section class="sec" id="both">
+<h2 class="head-gap">Can an agent keep its MCP servers and still get the CLI?</h2>
+<p class="prose head-gap">Yes. <code>declick setup</code> reads the MCP servers an agent already has configured and compiles each one into an adapter, without removing the server. <code>declick setup --revert</code> puts every file back byte for byte. A stdio server is spawned per call, and that spawn is most of what a call costs, so <code>declick daemon start</code> keeps the servers warm between runs: a server that takes 600 ms to start answered in 59 ms warm instead of 703 ms cold. The guard, the audit line and the local policy stay on the client side of that socket.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Adopt existing MCP servers"><code><span class="cmd"><span class="sig">$</span> npm i -g declick</span>
+<span class="cmd"><span class="sig">$</span> declick setup</span>
+<span class="cmd"><span class="sig">$</span> declick daemon start</span>
+<span class="cmd"><span class="sig">$</span> declick list</span></code></pre>
+<figcaption><span class="cap">Node 24 or newer; setup is optional and reversible</span><span class="chip">exit 0</span></figcaption>
+</figure>
+<p class="links"><a href="/mcp-cli">Run an MCP server from the command line</a><a href="/claude-skills">Generate a SKILL.md per adapter</a><a href="/">Read the declick overview</a></p>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="/guides">All guides</a><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a></p>
+</div>
+</footer>
+</body>
+</html>

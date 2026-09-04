@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP CLI: Run Any MCP Server From the Command Line | declick</title>
+<meta name="description" content="An MCP CLI that compiles a stdio or streamable HTTP MCP server into shell verbs. List the tools, read one tool's schema in about 300 tokens, call it from bash with trimmed JSON back, and keep the server warm between calls with declick daemon. Node 24, zero runtime dependencies.">
+<link rel="canonical" href="https://declick.dev/mcp-cli">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://declick.dev/mcp-cli">
+<meta property="og:title" content="MCP CLI: run any MCP server from the command line">
+<meta property="og:description" content="Compile a stdio or HTTP MCP server into shell verbs. List the tools, read one in about 300 tokens, call it from bash, keep the server warm between calls.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MCP CLI: run any MCP server from the command line">
+<meta name="twitter:description" content="Compile a stdio or HTTP MCP server into shell verbs. List the tools, read one in about 300 tokens, call it from bash, keep the server warm between calls.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<script defer src="/_vercel/insights/script.js"></script>
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "MCP CLI: run any MCP server from the command line",
+  "description": "Compile a stdio or HTTP MCP server into shell verbs. List the tools, read one in about 300 tokens, call it from bash, keep the server warm between calls.",
+  "url": "https://declick.dev/mcp-cli",
+  "datePublished": "2026-09-04",
+  "dateModified": "2026-09-04",
+  "author": { "@type": "Person", "name": "Wes Sander", "url": "https://x.com/ucsandman" },
+  "publisher": { "@type": "Organization", "name": "Practical Systems", "url": "https://www.practicalsystems.io/" },
+  "about": { "@type": "SoftwareApplication", "name": "declick", "url": "https://declick.dev/" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/guides">All guides</a></p>
+<h1 class="head-gap">MCP CLI: run any MCP server from the command line</h1>
+<p class="lead prose head-gap">An MCP server speaks JSON-RPC over stdio or streamable HTTP, which means a shell cannot call it without a client in the loop. declick is that client, compiled away: <code>declick add mcp:&lt;command&gt;</code> connects once, reads the server's tool list, and writes a CLI where every tool is a verb. From then on an agent, a script or a person runs one line from bash and gets JSON back, with <code>--fields</code> and <code>--limit</code> trimming the result before it lands.</p>
+<p class="facts"><span>transports <b>stdio, streamable HTTP</b></span><span>tool detail <b>~1,031 to 1,299 bytes</b></span><span>warm call <b>59 ms</b></span><span>node <b>&gt;=24</b></span></p>
+<p class="note">Written by Wes Sander, who built declick. Updated 2026-09-04. The byte and millisecond figures come from docs/bench.md and the README in the declick repository, measured 2026-09-03.</p>
+</section>
+
+<section class="sec" id="compile">
+<h2 class="head-gap">How do I compile an MCP server into a CLI?</h2>
+<p class="prose head-gap">Pass the server's launch command after <code>mcp:</code> for a stdio server, or its URL for a streamable HTTP server. declick spawns or connects, calls <code>initialize</code> and <code>tools/list</code>, and writes a manifest, a launcher and a <code>SKILL.md</code>. A private server reads a bearer token from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick engines --source mcp:...</code> says which engine a source would land on before anything is written, and <code>declick add --dry-run</code> compiles and lints without writing.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Compile a stdio and an HTTP MCP server"><code><span class="cmd"><span class="sig">$</span> declick add "mcp:npx -y @modelcontextprotocol/server-filesystem ." --name fs</span>
+<span class="cmd"><span class="sig">$</span> declick add mcp:https://mcp.context7.com/mcp --name c7</span>
+<span class="cmd"><span class="sig">$</span> declick list</span></code></pre>
+<figcaption><span class="cap">stdio by command, HTTP by URL, then every adapter with its engine, verbs and auth keys</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="list-tools">
+<h2 class="head-gap">How do I list an MCP server's tools without an inspector?</h2>
+<p class="prose head-gap"><code>declick describe &lt;name&gt;</code> prints every tool as a verb with its purpose and required arguments, under 2,000 characters, from the compiled manifest and with no live connection. <code>declick describe &lt;name&gt; --verb &lt;verb&gt;</code> prints one tool's full argument detail, which measured between 1,031 and 1,299 bytes across nine servers with 2 to 124 tools. <code>declick manifest &lt;name&gt; --schema</code> prints the compiled contract as data, including each tool's input schema, for a script that needs the whole thing. Compared with the raw <code>tools/list</code> response, describe across those nine servers was 58,309 bytes against 236,818.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Inspect an MCP adapter"><code><span class="cmd"><span class="sig">$</span> declick describe fs</span>
+<span class="cmd"><span class="sig">$</span> declick describe fs --verb read-file</span>
+<span class="cmd"><span class="sig">$</span> declick manifest fs --verb read-file --schema</span></code></pre>
+<figcaption><span class="cap">the surface, one verb, the verb's schema as JSON</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="call">
+<h2 class="head-gap">How do I call an MCP tool from bash?</h2>
+<p class="prose head-gap"><code>declick run &lt;name&gt; &lt;verb&gt; [args] [--flags]</code>, or the short form <code>&lt;name&gt; &lt;verb&gt;</code> once <code>~/.declick/bin</code> is on PATH. The result comes back as <code>{"ok":true,"data":...,"meta":{...}}</code>, and the same five exit codes apply as on every other engine: 0 ok, 1 error, 2 not found, 3 blocked, 4 auth needed. A nested payload can be unwrapped to rows with <code>--rows path</code>, filtered with <code>--where k=v</code>, projected with <code>--fields a,b</code> and capped with <code>--limit N</code>. A mutating tool takes <code>--dry-run</code>. A <code>text/event-stream</code> response is returned as an array of parsed events.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Call a tool"><code><span class="cmd"><span class="sig">$</span> declick run fs read-file README.md --fields content --max-bytes 2000</span>
+<span class="cmd"><span class="sig">$</span> declick run fs list-directory . --limit 20</span>
+<span class="cmd"><span class="sig">$</span> declick run fs write-file notes.md --content "x" --dry-run</span></code></pre>
+<figcaption><span class="cap">trimmed read, capped list, a write previewed and not sent</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="warm">
+<h2 class="head-gap">Why is the first call slow, and how do I fix it?</h2>
+<p class="prose head-gap">A stdio MCP server is spawned per call, and the spawn is most of what a call costs: a real filesystem server measured 4.8 seconds, almost none of it the tool. <code>declick daemon start</code> keeps those servers alive between runs as a detached local process, one per user. Every <code>declick run</code> against an mcp adapter connects to it first and reuses the running server, and the envelope says <code>meta.daemon: true</code> when it did. A server that takes 600 ms to start answered in 59 ms warm instead of 703 ms cold. A server idle for ten minutes is dropped, and a daemon with no servers exits. HTTP MCP adapters never touch it. The guard, the audit line and the local policy stay on the client side, so the daemon is a cache and never a way around them.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Daemon"><code><span class="cmd"><span class="sig">$</span> declick daemon start</span>
+<span class="cmd"><span class="sig">$</span> declick daemon status</span>
+<span class="cmd"><span class="sig">$</span> declick daemon stop</span></code></pre>
+<figcaption><span class="cap">status returns {running, pid, started, servers:[{adapter, pid, calls, idleMs}]}</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="adopt">
+<h2 class="head-gap">Can it pick up the MCP servers my agent already has?</h2>
+<p class="prose head-gap">Yes. <code>declick setup</code> reads the MCP servers configured in the agents it finds on the machine and compiles each one into an adapter, leaving the server configuration in place. It also puts <code>~/.declick/bin</code> on PATH, adds a rules block to the agent's instruction file, and for Claude Code installs a hook that nudges the model toward the adapter. <code>declick setup --revert</code> undoes every one of those byte for byte, and <code>declick doctor</code> reports how many MCP servers are adapted.</p>
+<p class="links"><a href="/mcp-vs-cli">MCP vs CLI, measured</a><a href="/claude-skills">Generate a SKILL.md per adapter</a><a href="/">Read the declick overview</a></p>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="/guides">All guides</a><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a></p>
+</div>
+</footer>
+</body>
+</html>

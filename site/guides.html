@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>declick Guides: CLI Tools for AI Agents</title>
+<meta name="description" content="Guides to compiling APIs, MCP servers and databases into command line tools an AI agent can run: MCP vs CLI measured, generating Claude skills, an OpenAPI generator for a CLI, running MCP servers from bash, a SQLite CLI for agents.">
+<link rel="canonical" href="https://declick.dev/guides">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://declick.dev/guides">
+<meta property="og:title" content="declick guides: CLI tools for AI agents">
+<meta property="og:description" content="MCP vs CLI measured, generating Claude skills, an OpenAPI generator for a CLI, running MCP servers from bash, a SQLite CLI for agents.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="declick guides: CLI tools for AI agents">
+<meta name="twitter:description" content="MCP vs CLI measured, generating Claude skills, an OpenAPI generator for a CLI, running MCP servers from bash, a SQLite CLI for agents.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<script defer src="/_vercel/insights/script.js"></script>
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "CollectionPage",
+  "name": "declick guides",
+  "url": "https://declick.dev/guides",
+  "description": "Guides to compiling APIs, MCP servers and databases into command line tools an AI agent can run.",
+  "hasPart": [
+    { "@type": "TechArticle", "name": "MCP vs CLI for AI agents: the context cost, measured", "url": "https://declick.dev/mcp-vs-cli" },
+    { "@type": "TechArticle", "name": "Claude skills from any API: generate a SKILL.md per tool", "url": "https://declick.dev/claude-skills" },
+    { "@type": "TechArticle", "name": "OpenAPI generator for a CLI: compile a Swagger spec into verbs", "url": "https://declick.dev/openapi-to-cli" },
+    { "@type": "TechArticle", "name": "MCP CLI: run any MCP server from the command line", "url": "https://declick.dev/mcp-cli" },
+    { "@type": "TechArticle", "name": "SQLite CLI for AI agents: tables become verbs with JSON output", "url": "https://declick.dev/sqlite-cli" }
+  ]
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/">Return to the declick overview</a></p>
+<h1 class="head-gap">declick guides: CLI tools for AI agents</h1>
+<p class="lead prose head-gap">One page per question people bring to declick. Each one stands alone, names its numbers, and says where the numbers came from. Every command on these pages is from declick 0.6.1 on Node 24.</p>
+</section>
+
+<section class="sec" id="guides">
+<dl class="deflist">
+<dt><a href="/mcp-vs-cli">MCP vs CLI for AI agents: the context cost, measured</a></dt>
+<dd>Nine real MCP servers, 258 tools. The raw tool listing is 236,818 bytes, the compiled CLI describe is 58,309, and one verb's detail holds near 1,100 bytes whatever the server's size. What a CLI does and does not save per call, and when MCP is still the right choice.</dd>
+<dt><a href="/claude-skills">Claude skills from any API: generate a SKILL.md per tool</a></dt>
+<dd>What a Claude skill is, what declick writes into a generated one, where it lands for Claude Code, Codex, Hermes and OpenClaw, and how to print it for an AGENTS.md or a system prompt.</dd>
+<dt><a href="/openapi-to-cli">OpenAPI generator for a CLI: compile a Swagger spec into verbs</a></dt>
+<dd>Four commands from an OpenAPI 3 or Swagger 2 spec to a real call. The envelope every verb returns, how API keys stay out of the manifest, subsetting a large spec, and the difference from openapi-generator and Speakeasy.</dd>
+<dt><a href="/mcp-cli">MCP CLI: run any MCP server from the command line</a></dt>
+<dd>Compile a stdio or streamable HTTP server, list its tools without an inspector, call a tool from bash with the result trimmed, and keep the server warm between calls.</dd>
+<dt><a href="/sqlite-cli">SQLite CLI for AI agents: tables become verbs with JSON output</a></dt>
+<dd>A .db file becomes list, get, insert, update and delete verbs per table plus a read-only query. Filtering before the model sees a row, a dry run on every write, and one verb over many rows.</dd>
+<dt><a href="/controls">declick 0.6.1 control matrix</a></dt>
+<dd>Fifteen controls, the mechanism behind each, and the command that verifies it. Eleven need no configuration.</dd>
+</dl>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a><a href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
+</div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OpenAPI Generator for a CLI: Swagger Spec to Verbs | declick</title>
+<meta name="description" content="An OpenAPI generator that writes a CLI instead of an SDK. Point declick at an OpenAPI 3 or Swagger 2 spec, JSON or YAML, and get named verbs that return one JSON envelope with five exit codes, plus a SKILL.md so an agent finds them. Node 24, zero runtime dependencies.">
+<link rel="canonical" href="https://declick.dev/openapi-to-cli">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://declick.dev/openapi-to-cli">
+<meta property="og:title" content="OpenAPI generator for a CLI: compile a Swagger spec into verbs">
+<meta property="og:description" content="Point declick at an OpenAPI 3 or Swagger 2 spec and get named verbs that return one JSON envelope with five exit codes, plus a SKILL.md so an agent finds them.">
+<meta property="og:image" content="https://declick.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="OpenAPI generator for a CLI: compile a Swagger spec into verbs">
+<meta name="twitter:description" content="Point declick at an OpenAPI 3 or Swagger 2 spec and get named verbs that return one JSON envelope with five exit codes, plus a SKILL.md so an agent finds them.">
+<meta name="twitter:image" content="https://declick.dev/og.png">
+<link rel="preload" as="font" type="font/woff2" href="/fonts/archivo-var.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/spline-sans-mono-var.woff2" crossorigin>
+<script defer src="/_vercel/insights/script.js"></script>
+<link rel="stylesheet" href="/style.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "OpenAPI generator for a CLI: compile a Swagger spec into verbs",
+  "description": "Point declick at an OpenAPI 3 or Swagger 2 spec and get named verbs that return one JSON envelope with five exit codes, plus a SKILL.md so an agent finds them.",
+  "url": "https://declick.dev/openapi-to-cli",
+  "datePublished": "2026-09-04",
+  "dateModified": "2026-09-04",
+  "author": { "@type": "Person", "name": "Wes Sander", "url": "https://x.com/ucsandman" },
+  "publisher": { "@type": "Organization", "name": "Practical Systems", "url": "https://www.practicalsystems.io/" },
+  "about": { "@type": "SoftwareApplication", "name": "declick", "url": "https://declick.dev/" }
+}
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<main id="main">
+<div class="wrap">
+
+<section class="sec sec--hero">
+<p class="no-print"><a href="/guides">All guides</a></p>
+<h1 class="head-gap">OpenAPI generator for a CLI: compile a Swagger spec into verbs</h1>
+<p class="lead prose head-gap">Most OpenAPI generators produce a typed client library in a language of your choice, and the command line tool on top is still yours to write. declick reads an OpenAPI 3 or Swagger 2 spec, JSON or YAML, and writes the CLI directly: one named verb per operation, one JSON envelope on every call, five exit codes, and a <code>SKILL.md</code> so an AI agent finds the tool without being told. The live Swagger Petstore spec compiles to 19 verbs whose whole surface is 1,583 characters.</p>
+<p class="facts"><span>input <b>OpenAPI 3, Swagger 2</b></span><span>format <b>JSON or YAML</b></span><span>runtime deps <b>0</b></span><span>node <b>&gt;=24</b></span></p>
+<p class="note">Written by Wes Sander, who built declick. Updated 2026-09-04. The Petstore numbers are from the declick home page, where the full describe output is reproduced.</p>
+</section>
+
+<section class="sec" id="how">
+<h2 class="head-gap">How do I turn an OpenAPI spec into a CLI?</h2>
+<p class="prose head-gap">Install declick, run <code>declick add</code> with the spec's path or URL and a name, and the adapter exists. The first call after that is <code>describe</code>, which prints every verb with its one-line purpose and required arguments in under 2,000 characters. A spec-shaped URL, one with <code>.json</code>, <code>.yaml</code>, <code>openapi</code>, <code>swagger</code> or <code>api-docs</code> in the path, routes to the openapi engine even when the spec lists <code>components</code> first. A URL that answers 404 fails naming the status, and a plain web page is told it is not a spec rather than compiled as one.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Four commands from spec to call"><code><span class="cmd"><span class="sig">$</span> npm i -g declick</span>
+<span class="cmd"><span class="sig">$</span> declick add https://petstore3.swagger.io/api/v3/openapi.json --name petstore</span>
+<span class="cmd"><span class="sig">$</span> declick run petstore describe</span>
+<span class="cmd"><span class="sig">$</span> declick run petstore get-user-by-name user1 --fields username,email</span></code></pre>
+<figcaption><span class="cap">the user endpoints on Petstore declare no auth, so the last line is a real call</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="output">
+<h2 class="head-gap">What does a generated verb return?</h2>
+<p class="prose head-gap">Every verb returns the same envelope. Success is <code>{"ok":true,"data":...,"meta":{"count":N,"truncated":false}}</code> and failure is <code>{"ok":false,"error":"...","exit":N}</code>, with the API's error body carried in <code>data</code> when there is one. JSON is the default whenever stdout is not a terminal. The exit code is 0 for ok, 1 for an error, 2 for not found, 3 for blocked and 4 for auth needed, and it is the same five on every engine and on declick itself. <code>--fields a,b</code> projects named fields with dotted paths, <code>--limit N</code> caps a list, <code>--where k=v</code> filters it first, and <code>--max-bytes N</code> caps <code>data</code> at 8,192 bytes by default.</p>
+</section>
+
+<section class="sec" id="auth">
+<h2 class="head-gap">How does the generated CLI handle API keys?</h2>
+<p class="prose head-gap">The manifest stores the name of the environment variable, never its value. Petstore's <code>get-pet-by-id</code> declares an API key in the spec, so without <code>PETSTORE_API_KEY</code> set it exits 4 and names the key it wants. At run time declick reads <code>process.env</code> first, then <code>~/.creds/vault.env</code>, for only the names the verb needs. A key is released only to the origin the adapter was built against; a request to another host exits 4 unless the change is explicit on the command line. <code>--dry-run</code> on any mutating verb prints the request it would send, with secrets shown as their env names, and sends nothing.</p>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Auth and dry run"><code><span class="cmd"><span class="sig">$</span> declick auth petstore</span>
+<span class="cmd"><span class="sig">$</span> declick run petstore get-pet-by-id 7 --dry-run</span>
+<span class="cmd"><span class="sig">$</span> declick run petstore add-pet --body @pet.json --curl</span></code></pre>
+<figcaption><span class="cap">which keys are needed, the request without sending it, a runnable curl line with every secret masked</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</section>
+
+<section class="sec" id="large-specs">
+<h2 class="head-gap">What about a spec with hundreds of operations?</h2>
+<p class="prose head-gap">Subset it at compile time. <code>--verbs a,b</code> keeps named operations and <code>--tag t</code> keeps one tag's worth, so an agent's surface stays under the 2,000-character ceiling that <code>declick lint</code> enforces. A surface over the ceiling pages itself: describe ends with a footer naming how many verbs are left and the flags that reach them, <code>--grep text</code>, <code>--offset N</code> and <code>--verb v</code>. The HTTP request flags are the same on every openapi adapter: <code>--header</code>, <code>--base-url</code> or <code>--server</code>, <code>--body @file</code>, <code>--output</code> for a binary response, <code>--retry</code>, <code>--timeout</code> and <code>--verbose</code>.</p>
+</section>
+
+<section class="sec" id="compared">
+<h2 class="head-gap">How is this different from openapi-generator or Speakeasy?</h2>
+<p class="prose head-gap">Those produce a library per language and leave the CLI, the output shaping and the exit codes to you. declick skips the library and writes the CLI, and the same command compiles a GraphQL endpoint, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite file, another tool's <code>--help</code>, a browser page or a Windows app to the same contract. Runtime REST clients built for a person at a keyboard, restish among them, give you shorthand syntax and colored output for one API at a time; declick is built for a program that needs one shape it can parse every time.</p>
+<p class="links"><a href="/claude-skills">Generate a SKILL.md per adapter</a><a href="/mcp-vs-cli">MCP vs CLI, measured</a><a href="/">Read the declick overview</a></p>
+</section>
+
+</div>
+</main>
+<footer>
+<div class="wrap">
+<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p class="links no-print"><a href="/guides">All guides</a><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a></p>
+</div>
+</footer>
+</body>
+</html>
