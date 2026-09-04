@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 (2026-09-04)
 
 - The Claude Code nudge hook counts itself. Its matcher now includes Bash and PowerShell, so the tool call right after a nudge is seen: a shell command naming declick is `followed`, anything else is `ignored`. Totals and per-adapter counts live in `~/.declick/hooks/nudge-stats.json` and `declick doctor` reports them as `integration.nudge` with a `followRate`. `declick setup` widens the matcher of an entry it installed earlier in place (`hook: updated`) instead of adding a second one. A shell call with no nudge pending writes nothing.
 - The site leads with what declick is for: a compiler for the interface the agent already has, the shell, against the schema tax MCP charges every turn. The engines table names the four to start with (openapi, mcp, sqlite, compose) above the six also compiled in, and the errors section shows the exit 2 envelope for an unknown verb, which names the nearest verbs.

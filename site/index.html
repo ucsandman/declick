@@ -32,7 +32,7 @@
   "@type": "SoftwareApplication",
   "name": "declick",
   "applicationCategory": "DeveloperApplication",
-  "softwareVersion": "0.6.1",
+  "softwareVersion": "0.6.2",
   "description": "Compile an OpenAPI spec, GraphQL API, MCP server, Postman collection, HAR capture, SQLite file, another CLI, a browser page, or a Windows app into a command line tool that returns one envelope with five exit codes.",
   "url": "https://declick.dev/",
   "softwareRequirements": "Node 24 or newer",
@@ -88,7 +88,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 </div>
 </div>
 <figure class="block">
-<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.6.1","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
+<pre tabindex="0" role="group" aria-label="Output of declick version --json"><code><span class="out">{"ok":true,"data":{"version":"0.6.2","node":"24.15.0"},"meta":{"count":1,"truncated":false}}</span></code></pre>
 <figcaption><span class="cap"><code>declick version --json</code></span><span class="chip">exit 0</span></figcaption>
 </figure>
 <nav class="links secnav" aria-label="Sections of this page">
@@ -626,14 +626,14 @@ export async function declick(adapter, verb, args = []) {
 </div>
 <figure class="block">
 <pre tabindex="0" role="group" aria-label="First line of declick describe declick"><code><span class="cmd"><span class="sig">$</span> declick describe declick</span>
-<span class="out">declick 0.6.1: turn anything into a CLI so your agents stop clicking</span></code></pre>
+<span class="out">declick 0.6.2: turn anything into a CLI so your agents stop clicking</span></code></pre>
 <figcaption><span class="cap">The first line of the text form.</span><span class="chip">exit 0</span></figcaption>
 </figure>
 </section>
 
 <section class="sec" id="requirements">
-<h2 class="head-gap">What it needs, and what 0.6.1 does not do</h2>
-<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.6.1: a macOS or Linux desktop backend.</p>
+<h2 class="head-gap">What it needs, and what 0.6.2 does not do</h2>
+<p class="prose head-gap">Node 24 or newer; <code>declick doctor</code> checks it and keeps blocking problems separate from warnings. The desktop engine is Windows only and needs deskclaw 0.3.0 or newer on PATH; there is no macOS or Linux desktop backend. The web engine needs Chrome or Edge installed. The cli engine needs the target binary on PATH. Authoring or repair needs the Claude Code CLI on PATH for one bounded sonnet session, default timeout 300,000 ms. mcp and graphql against a private server read a bearer from <code>&lt;NAME&gt;_TOKEN</code>. <code>declick ui</code> listens on 127.0.0.1 only. Not shipped in 0.6.2: a macOS or Linux desktop backend.</p>
 <div class="split head-gap">
 <div>
 <table>
@@ -654,7 +654,7 @@ export async function declick(adapter, verb, args = []) {
 <div>
 <table>
 <thead>
-<tr><th scope="col">not in 0.6.1</th><th scope="col">status</th></tr>
+<tr><th scope="col">not in 0.6.2</th><th scope="col">status</th></tr>
 </thead>
 <tbody>
 <tr><td>macOS or Linux desktop backend</td><td><span class="chip">not shipped</span></td></tr>
@@ -683,7 +683,7 @@ export async function declick(adapter, verb, args = []) {
 <h2 class="head-gap">Four commands to a working adapter</h2>
 <div class="pane head-gap">
 <div>
-<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.6.1 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
+<p class="prose">Install it, wire it into your agent, point it at a spec, describe what came out. <code>declick setup</code> is optional: skip it and <code>declick add</code> still works with no configuration. <code>declick add</code> writes three things: the compiled manifest at <code>~/.declick/&lt;name&gt;/manifest.json</code>, a two line launcher in <code>~/.declick/bin</code>, and a <code>SKILL.md</code> into every agent skills directory on the machine (Claude Code, Codex, Hermes, OpenClaw) so the agent finds the adapter without being told. It writes declick's own skill too, so an agent that finds one adapter knows how to build the next. <code>declick path --install</code> puts the launcher directory on PATH. Every block on this page is output from declick 0.6.2 on Node 24.15.0; home directory paths are shortened and nothing else is edited. Source on GitHub.</p>
 </div>
 <div>
 <figure class="block">
@@ -713,7 +713,7 @@ run: petstore &lt;verb&gt; [args] [--flags]   or: declick run petstore &lt;verb&
 </main>
 <footer>
 <div class="wrap">
-<p>declick 0.6.1. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
+<p>declick 0.6.2. Built by <a href="https://www.practicalsystems.io/">Practical Systems</a>.</p>
 <p class="links no-print"><a href="/guides">Read the guides</a><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a><a href="/controls">Read the control matrix</a><a href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
 </div>
 </footer>

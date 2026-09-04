@@ -1,6 +1,6 @@
 # declick
 
-> Turn anything into a CLI so your agents stop clicking. declick compiles any of ten sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, a native Windows window, or a chain of verbs from adapters already built, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 35 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
+> A compiler for the interface your agent already has: the shell. MCP makes an agent carry every tool's schema on every turn; declick loads one verb at a time. declick compiles any of ten sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, a native Windows window, or a chain of verbs from adapters already built, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 35 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
 
 - [Source](https://github.com/ucsandman/declick): the repository
 - [Package](https://www.npmjs.com/package/declick): the published package
@@ -55,7 +55,7 @@
 - Nine real stdio MCP servers, 258 tools: raw initialize plus tools/list is 236,818 bytes, declick describe is 58,309 bytes, a 4.1x reduction (docs/bench.md, node scripts/bench-tokens.mjs). A warm daemon answers a server that takes 600ms to start in 59ms instead of 703ms cold.
 - Not shipped in 0.6.0: a macOS or Linux desktop backend.
 
-- [Control matrix](https://declick.dev/controls): the controls in 0.6.1 and the command that verifies each one
+- [Control matrix](https://declick.dev/controls): the controls in 0.6.2 and the command that verifies each one
 
 ## Guides
 
