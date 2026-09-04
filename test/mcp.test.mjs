@@ -70,9 +70,10 @@ test('execute returns structuredContent from a real child process', async () => 
 });
 
 test('execute coerces every flag by schema type and parses a JSON text result', async () => {
-  const r = await execute(m, 'add-note', ['Buy milk'], { count: '2', kind: 'memo', tags: ['a', 'b'], meta: '{"x":1}', pinned: 'true' });
+  const r = await execute(m, 'add-note', ['Buy milk'], { count: '2', kind: 'memo', tags: ['a', 'b'], meta: '{"x":1}', pinned: 'true', steps: '[{"tool":"tap","args":{"x":1}},{"tool":"ocr"}]' });
   assert.equal(r.ok, true, r.error);
-  assert.deepEqual(r.data, { id: 'n3', echo: { title: 'Buy milk', count: 2, kind: 'memo', tags: ['a', 'b'], meta: { x: 1 }, pinned: true } });
+  assert.deepEqual(r.data, { id: 'n3', echo: { title: 'Buy milk', count: 2, kind: 'memo', tags: ['a', 'b'], meta: { x: 1 }, pinned: true, steps: [{ tool: 'tap', args: { x: 1 } }, { tool: 'ocr' }] } },
+    'an array-of-object flag is parsed once from its JSON text and each already-parsed item passes through (it used to fail as "[object Object]")');
 });
 
 test('a positional and its flag together is an error, and a missing required arg names it', async () => {

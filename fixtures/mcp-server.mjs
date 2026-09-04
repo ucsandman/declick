@@ -45,6 +45,8 @@ const TOOLS = [
         tags: { type: 'array', items: { type: 'string' }, description: 'labels' },
         meta: { type: 'object', description: 'free-form metadata' },
         pinned: { type: 'boolean', description: 'pin it to the top' },
+        // An array of objects is what a batching tool takes (sidetap's act --steps); its items arrive already parsed.
+        steps: { type: 'array', items: { type: 'object' }, description: 'sub-steps' },
       },
     },
   },

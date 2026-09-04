@@ -142,7 +142,9 @@ function convert(f, x) {
     return arr.map(one => convert({ ...f, type: f.item || 'string' }, one));
   }
   if (t === 'object') {
-    const o = json(f, x, 'a JSON object');
+    // An element of an array flag arrives already parsed (the array branch maps this over the items), so only
+    // a string still needs JSON.parse: an object handed to it here read as "[object Object]" and failed.
+    const o = x && typeof x === 'object' ? x : json(f, x, 'a JSON object');
     if (!o || typeof o !== 'object' || Array.isArray(o)) throw bad(f, 'a JSON object', x);
     return o;
   }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 (2026-09-04)
+
+- An MCP flag typed `array` of `object` now reaches the server. Each item of an array flag is coerced by the item type, and the object branch re-parsed an already-parsed item as `[object Object]`, so a batching tool such as SideTap's `act --steps '[{"tool":"tap",...}]'` was exit 1 before the server was spawned. An object handed to the object branch passes through and a string still parses; the fixture's `add_note` grew a `steps` array and the coercion test pins it (634 tests).
+
 ## 0.6.0 (2026-09-03)
 
 Five answers to the same problem, that an API sends more than the agent asked for and the whole of it lands in the context, plus warm MCP servers so the second call stops paying the first one's startup. The savings are measured: `scripts/bench-tokens.mjs` against nine real MCP servers (258 tools) puts the raw tool listing at 236,818 bytes and `declick describe` at 58,309, a 4.1x reduction (docs/bench.md). 631 tests pass.
