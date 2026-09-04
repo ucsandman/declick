@@ -48,10 +48,10 @@
 <div class="wrap">
 
 <section class="sec sec--hero">
-<h1>Compile an API, an MCP server, or a database into a CLI your agent can run.</h1>
+<h1>A compiler for the interface your agent already has: the shell.</h1>
 <div class="pane">
 <div>
-<p class="lead prose">Stop writing a parser for every tool your agent calls. declick reads a source once and writes named verbs that return one envelope with five exit codes. Ten engines, zero runtime dependencies, Node 24.</p>
+<p class="lead prose">Your agent has a shell. MCP makes it carry every tool's schema on every turn. declick compiles an API, an MCP server, or a database once into named verbs the model loads one at a time, and every verb answers in one envelope with five exit codes. Ten engines, zero runtime dependencies, Node 24.</p>
 <p class="btns"><a class="btn" href="#install">Install declick and compile a spec</a><a class="btn btn--ghost" href="mailto:wes@practicalsystems.io?subject=declick%20license&amp;body=Team%20size%3A%20%0AWhat%20you%20are%20compiling%3A%20%0A">Request a license</a></p>
 <p class="install-line"><code>npm i -g declick</code></p>
 <p class="links"><a href="https://github.com/ucsandman/declick">Read the source on GitHub</a><a href="https://www.npmjs.com/package/declick">View the package on npm</a></p>
@@ -166,13 +166,18 @@ nine stdio MCP servers, combined      258        236,818 bytes         58,309 by
 <h2 class="head-gap">A miss names what exists</h2>
 <div class="pane">
 <div>
-<p class="prose">An unknown flag is exit 1 with the nearest match. A missing adapter is exit 2 with the command that lists them. A <code>--fields</code> list that matches nothing is exit 1 naming the keys that were available; a partial miss lands in <code>meta.unknownFields</code> and the call still succeeds. Every error string ends with a runnable next command, so an agent retries with a real argument instead of guessing twice. Adapter-run failures also carry <code>meta.governance</code>, so the audit trail is complete even on a typo.</p>
+<p class="prose">An unknown flag is exit 1 with the nearest match. An unknown verb is exit 2 with the nearest verb names, so a guess costs one turn, not two. A missing adapter is exit 2 with the command that lists them. A <code>--fields</code> list that matches nothing is exit 1 naming the keys that were available; a partial miss lands in <code>meta.unknownFields</code> and the call still succeeds. Every error string ends with a runnable next command, so an agent retries with a real argument instead of guessing twice. Adapter-run failures also carry <code>meta.governance</code>, so the audit trail is complete even on a typo.</p>
 </div>
 <div class="stack-32">
 <figure class="block">
 <pre tabindex="0" role="group" aria-label="Output of declick version --nope"><code><span class="cmd"><span class="sig">$</span> declick version --nope</span>
 <span class="out">{"ok":false,"error":"unknown flag --nope for version; did you mean --rows?; run: declick version --help","exit":1}</span></code></pre>
 <figcaption><span class="cap">An unknown flag names the nearest match.</span><span class="chip chip--hot">exit 1</span></figcaption>
+</figure>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Output of declick run petstore get-pet 7"><code><span class="cmd"><span class="sig">$</span> declick run petstore get-pet 7</span>
+<span class="out">{"ok":false,"error":"unknown verb get-pet; run: declick describe petstore; did you mean get-pet-by-id, add-pet?","exit":2,"meta":{"governance":{"enabled":true,"decision":"skipped","reason":"no mutating action"}}}</span></code></pre>
+<figcaption><span class="cap">An unknown verb names the nearest verbs.</span><span class="chip chip--hot">exit 2</span></figcaption>
 </figure>
 <figure class="block">
 <pre tabindex="0" role="group" aria-label="Output of declick describe nosuchthing"><code><span class="cmd"><span class="sig">$</span> declick describe nosuchthing</span>
@@ -286,23 +291,28 @@ common: --json --fields --limit --full --help   exit: 0 ok 1 err 2 missing 3 blo
 </section>
 
 <section class="sec" id="engines">
-<h2 class="head-gap">Ten engines, no npm runtime dependencies</h2>
+<h2 class="head-gap">Start with four engines. Six more are compiled in.</h2>
+<p class="prose head-gap">Most agents need four: <code>openapi</code> for a spec, <code>mcp</code> for a server the agent already has, <code>sqlite</code> for a database, and <code>compose</code> to name a chain of verbs the model would otherwise rediscover every session. Nothing outside declick runs for any of them. The six below cover a source the first four do not read: a GraphQL endpoint, a Postman or Insomnia export, a HAR capture, another tool's <code>--help</code>, a browser page, a Windows window. The last three drive something live, so they carry the flakiness of that thing; the first seven do not.</p>
 <p class="prose head-gap">Every engine is compiled into declick, so there is no plugin to find and no service in the path. Four of them shell out to something you already have: web needs Chrome or Edge, desktop needs deskclaw, cli needs the target binary on PATH, and authoring needs the Claude Code CLI. compose shells out too, but only to declick itself: every step in a chain runs as its own guarded, audited command, not a third-party binary. The requirements section lists all of it. <code>declick engines --source</code> says which engine a source lands on, and why, before anything is written. A URL spec is fetched once at compile time and never again at run time.</p>
 <table class="head-gap">
 <thead>
 <tr><th scope="col">engine</th><th scope="col">source</th><th scope="col">what is specific to it</th></tr>
 </thead>
 <tbody>
+<tr><th scope="rowgroup" colspan="3">start here: a spec, a server, a database, a chain</th></tr>
 <tr><td><code>openapi</code></td><td><code>spec.json | spec.yaml | https://.../openapi.json</code></td><td>openapi 3 and swagger 2, json or yaml; a url spec is fetched once at compile time</td></tr>
-<tr><td><code>desktop</code></td><td><code>app:&lt;window title&gt;</code></td><td>needs deskclaw; <code>declick doctor</code> checks it</td></tr>
 <tr><td><code>mcp</code></td><td><code>mcp:&lt;command args&gt; | mcp:https://host/mcp</code></td><td>stdio servers spawn the command; http servers take a bearer from <code>&lt;NAME&gt;_TOKEN</code></td></tr>
-<tr><td><code>web</code></td><td><code>web:https://&lt;site&gt; --recipes &lt;dir&gt;</code></td><td>needs Chrome or Edge; one recipe json per verb, and errors carry candidates instead of screenshots</td></tr>
+<tr><td><code>sqlite</code></td><td><code>sqlite:&lt;path&gt; | data.db</code></td><td>introspects tables and views into list, get, insert, update, delete and a parameterized query</td></tr>
+<tr><td><code>compose</code></td><td><code>compose:&lt;chain.json&gt;</code></td><td>chains verbs from adapters already built into one verb; every step still runs as its own guarded, audited command</td></tr>
+</tbody>
+<tbody>
+<tr><th scope="rowgroup" colspan="3">also compiled in: other spec formats, and sources with no spec</th></tr>
 <tr><td><code>graphql</code></td><td><code>graphql:https://.../graphql | schema.json | schema.graphql</code></td><td>introspects the endpoint; bearer from <code>&lt;NAME&gt;_TOKEN</code> when it answers 401</td></tr>
 <tr><td><code>postman</code></td><td><code>collection.json | insomnia.json</code></td><td>postman v2.1 collections and insomnia v4 exports; recorded secrets become env keys</td></tr>
 <tr><td><code>har</code></td><td><code>capture.har</code></td><td>browser network capture; <code>--host</code> picks the API host when the capture has several</td></tr>
-<tr><td><code>sqlite</code></td><td><code>sqlite:&lt;path&gt; | data.db</code></td><td>introspects tables and views into list, get, insert, update, delete and a parameterized query</td></tr>
 <tr><td><code>cli</code></td><td><code>cli:&lt;binary&gt; [fixed args]</code></td><td>compiled from the tool own <code>--help</code>; the binary must be on PATH</td></tr>
-<tr><td><code>compose</code></td><td><code>compose:&lt;chain.json&gt;</code></td><td>chains verbs from adapters already built into one verb; every step still runs as its own guarded, audited command</td></tr>
+<tr><td><code>web</code></td><td><code>web:https://&lt;site&gt; --recipes &lt;dir&gt;</code></td><td>needs Chrome or Edge; one recipe json per verb, and errors carry candidates instead of screenshots</td></tr>
+<tr><td><code>desktop</code></td><td><code>app:&lt;window title&gt;</code></td><td>needs deskclaw; <code>declick doctor</code> checks it</td></tr>
 </tbody>
 </table>
 <div class="stack-32">

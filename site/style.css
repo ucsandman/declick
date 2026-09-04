@@ -270,6 +270,9 @@ th {
   border-bottom: 1px solid var(--line-strong);
 }
 
+th[scope="rowgroup"] { font-size: 12px; color: var(--dim); }
+tbody + tbody th[scope="rowgroup"] { padding-top: 24px; }
+
 td:last-child, th:last-child { padding-right: 0; }
 td code, th code { overflow-wrap: anywhere; }
 /* the control ids are the reference scheme a reviewer quotes back, so they never break */

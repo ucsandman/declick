@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -48,6 +48,33 @@ test('WebFetch carries the url; a chrome reader gets the web-tree nudge; a chrom
 
 test('DECLICK_NUDGE_OFF silences every nudge', () => {
   assert.equal(call(session(), 'mcp__xapi__search_news', {}, { DECLICK_NUDGE_OFF: '1' }), null);
+});
+
+const stats = () => JSON.parse(readFileSync(join(HOME, 'hooks', 'nudge-stats.json'), 'utf8'));
+
+test('the next tool call after a nudge is counted as followed or ignored, per key and in total', () => {
+  rmSync(join(HOME, 'hooks', 'nudge-stats.json'), { force: true });
+  let s = session();
+  assert.match(call(s, 'mcp__xapi__search_news', {}), /declick run xapi/);
+  assert.equal(call(s, 'Bash', { command: 'declick run xapi search-news --fields url --limit 5' }), null);
+  assert.deepEqual(stats().keys.xapi, { fired: 1, followed: 1, ignored: 0 });
+  s = session();
+  call(s, 'mcp__xapi__search_news', {});
+  call(s, 'Bash', { command: 'git status' });
+  assert.deepEqual(stats().keys.xapi, { fired: 2, followed: 1, ignored: 1 });
+  s = session();
+  call(s, 'WebFetch', { url: 'https://a.test' });
+  call(s, 'mcp__claude-in-chrome__read_page', {});
+  assert.deepEqual(stats().keys.web, { fired: 1, followed: 0, ignored: 1 }, 'repeating the MCP read counts as ignored');
+  assert.equal(stats().fired, 3); assert.equal(stats().followed, 1); assert.equal(stats().ignored, 2);
+  assert.equal(call(s, 'Bash', { command: 'declick list' }), null);
+  assert.equal(stats().followed, 1, 'a declick call with no nudge pending changes nothing');
+});
+
+test('a shell call with no nudge pending is silent and writes no stats', () => {
+  rmSync(join(HOME, 'hooks', 'nudge-stats.json'), { force: true });
+  assert.equal(call(session(), 'Bash', { command: 'declick list' }), null);
+  assert.equal(existsSync(join(HOME, 'hooks', 'nudge-stats.json')), false);
 });
 
 test('a bad payload exits 0 with no output', () => {

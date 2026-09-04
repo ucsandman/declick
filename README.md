@@ -1,6 +1,6 @@
 # declick
 
-Stop writing a parser for every tool your agent calls. declick reads a source once and writes named verbs that return one envelope with five exit codes. Ten engines, zero runtime dependencies, Node 24.
+A compiler for the interface your agent already has: the shell. MCP makes an agent carry every tool's schema on every turn; declick compiles an API, an MCP server, or a database once into named verbs the model loads one at a time, and every verb returns one envelope with five exit codes. Ten engines, zero runtime dependencies, Node 24.
 
 The saving is measured, not claimed: against nine real MCP servers (258 tools), the raw tool listing an MCP client puts in context is 236,818 bytes and `declick describe` is 58,309, a 4.1x reduction. `node scripts/bench-tokens.mjs` reproduces it on your own adapters; the method and the caveats are in [docs/bench.md](docs/bench.md).
 
@@ -39,7 +39,7 @@ Integrating declick into an agent by hand means four things. `declick setup` doe
 1. **PATH.** The same thing `path --install` does: puts `~/.declick/bin` on PATH for new shells.
 2. **Adopt the agent's MCP servers.** Reads `.claude.json`, `.mcp.json`, installed Claude Code plugins, and Codex's `config.toml`, and builds an adapter for each server it finds, so they get describe, `--fields`, `--limit` and the rest of the contract for free. A server that needs a bearer token it does not have is skipped and named, not silently dropped.
 3. **A rules block.** Adds a fenced block between `<!-- declick:start -->` and `<!-- declick:end -->` markers to `CLAUDE.md` or `AGENTS.md`, telling the agent to reach for a declick adapter before an MCP call, WebFetch, a browser read or raw curl. Running setup again replaces the block in place instead of duplicating it.
-4. **The Claude Code hook.** Registers a PreToolUse hook that nudges the model, once per adapter per session, when it calls an MCP tool or WebFetch that has a declick adapter.
+4. **The Claude Code hook.** Registers a PreToolUse hook that nudges the model, once per adapter per session, when it calls an MCP tool or WebFetch that has a declick adapter. The hook also watches the tool call right after a nudge and counts it as followed (a shell command naming declick) or ignored, in `~/.declick/hooks/nudge-stats.json`; `declick doctor` shows the totals and the follow rate under `integration.nudge`, so a nudge that is wrong too often shows up as a number. A hook entry from an older setup gets the wider matcher in place on the next `declick setup`.
 
 Before any of that writes anything, setup takes a byte-exact snapshot of every file it is about to touch under `~/.declick/setup/<timestamp>/`. `declick setup --revert` reads the latest snapshot and undoes exactly what setup did:
 

@@ -220,6 +220,8 @@ export async function runSetup({ flags = {}, build, cwd = process.cwd(), clientH
   });
 
   // 5. Hook: shipped file copied into ~/.declick/hooks, one PreToolUse entry merged into settings.json.
+  // Shell tools are matched too: the hook counts whether the call after a nudge was a declick call (nudge-stats.json).
+  const HOOK_MATCHER = 'mcp__.*|WebFetch|Bash|PowerShell';
   let hookResult = { file: null, settings: null, action: 'skipped' };
   if (hookWanted) {
     const hookFile = join(HOME, 'hooks', 'declick-nudge.cjs');
@@ -230,10 +232,15 @@ export async function runSetup({ flags = {}, build, cwd = process.cwd(), clientH
     if (obj === null) hookResult = { file: hookFile, settings: settingsPath, action: 'skipped', reason: 'settings.json is not valid JSON; hook not installed' };
     else {
       const cmd = `node "${hookFile.replace(/\\/g, '/')}"`;
-      const already = (obj.hooks?.PreToolUse || []).some(m => (m.hooks || []).some(h => String(h.command || '').includes('declick-nudge')));
-      if (already) hookResult = { file: hookFile, settings: settingsPath, action: 'present' };
+      const already = (obj.hooks?.PreToolUse || []).find(m => (m.hooks || []).some(h => String(h.command || '').includes('declick-nudge')));
+      // An entry from an older setup matched MCP and WebFetch only; the hook now also watches the shell call after a nudge to count it.
+      if (already && already.matcher !== HOOK_MATCHER) {
+        already.matcher = HOOK_MATCHER;
+        writeFileSync(settingsPath, JSON.stringify(obj, null, 2) + '\n');
+        hookResult = { file: hookFile, settings: settingsPath, action: 'updated', matcher: HOOK_MATCHER };
+      } else if (already) hookResult = { file: hookFile, settings: settingsPath, action: 'present' };
       else {
-        const entry = { matcher: 'mcp__.*|WebFetch', hooks: [{ type: 'command', command: cmd, timeout: 5, statusMessage: 'declick adapter check...' }] };
+        const entry = { matcher: HOOK_MATCHER, hooks: [{ type: 'command', command: cmd, timeout: 5, statusMessage: 'declick adapter check...' }] };
         const merged = { ...obj, hooks: { ...(obj.hooks || {}), PreToolUse: [...(obj.hooks?.PreToolUse || []), entry] } };
         mkdirSync(dirname(settingsPath), { recursive: true });
         writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
@@ -317,5 +324,8 @@ export function integrationStatus(clientHome = clientHomeOf(), cwd = process.cwd
   const mapping = readJson(join(HOME, 'hooks', 'servers.json')) || {};
   // Adapted means setup mapped it or an adapter with that exact source exists, however it was built.
   const unadapted = sources.filter(s => !(s.serverName in mapping) && !findExistingBySource(s.source)).map(s => s.serverName);
-  return { setup: at, revertAvailable: existsSync(latestPath), clients, mcp: { total: sources.length, adapted: sources.length - unadapted.length, unadapted } };
+  // What the hook counted: nudges fired, and whether the next call was a declick call. A follow rate that stays low says the nudge is wrong, not the model.
+  const ns = readJson(join(HOME, 'hooks', 'nudge-stats.json'));
+  const nudge = ns ? { fired: ns.fired || 0, followed: ns.followed || 0, ignored: ns.ignored || 0, followRate: ns.fired ? Math.round(100 * (ns.followed || 0) / ns.fired) / 100 : null, since: ns.since || null, keys: ns.keys || {} } : { fired: 0, followed: 0, ignored: 0, followRate: null, since: null, keys: {} };
+  return { setup: at, revertAvailable: existsSync(latestPath), clients, mcp: { total: sources.length, adapted: sources.length - unadapted.length, unadapted }, nudge };
 }

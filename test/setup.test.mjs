@@ -103,7 +103,7 @@ test('setup: fresh client home adopts a stdio server, skips an http one needing 
   assert.equal(d.rules[0].action, 'added');
   assert.equal(d.hook.action, 'added');
   const settings = JSON.parse(readFileSync(join(s1.clientHome, '.claude', 'settings.json'), 'utf8'));
-  assert.ok(settings.hooks.PreToolUse.some(m => m.matcher === 'mcp__.*|WebFetch' && m.hooks.some(h => h.command.includes('declick-nudge'))));
+  assert.ok(settings.hooks.PreToolUse.some(m => m.matcher === 'mcp__.*|WebFetch|Bash|PowerShell' && m.hooks.some(h => h.command.includes('declick-nudge'))));
   assert.ok(existsSync(join(s1.home, 'hooks', 'declick-nudge.cjs')));
   const servers = JSON.parse(readFileSync(join(s1.home, 'hooks', 'servers.json'), 'utf8'));
   assert.equal(servers.notes, 'notes');
@@ -112,6 +112,19 @@ test('setup: fresh client home adopts a stdio server, skips an http one needing 
   const manifest = JSON.parse(readFileSync(join(d.snapshot, 'manifest.json'), 'utf8'));
   for (const f of manifest.files) assert.equal(f.after, existsSync(f.path) ? sha(readFileSync(f.path)) : null, f.path);
   s1.before = { claudeMd: readFileSync(join(s1.clientHome, '.claude', 'CLAUDE.md'), 'utf8'), settings: readFileSync(join(s1.clientHome, '.claude', 'settings.json'), 'utf8') };
+});
+
+test('setup: a hook entry from an older setup (MCP and WebFetch only) gets the shell matcher in place', async () => {
+  const s = freshHomes(); mkdirSync(join(s.clientHome, '.claude'), { recursive: true });
+  const settingsPath = join(s.clientHome, '.claude', 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'mcp__.*|WebFetch', hooks: [{ type: 'command', command: `node "${join(s.home, 'hooks', 'declick-nudge.cjs').replace(/\\/g, '/')}"`, timeout: 5 }] }] } }, null, 2) + '\n');
+  const r = await runAsync(['setup', '--no-path'], envFor(s));
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(J(r).data.hook.action, 'updated');
+  const after = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  assert.equal(after.hooks.PreToolUse.filter(m => m.hooks.some(h => h.command.includes('declick-nudge'))).length, 1, 'one entry, not two');
+  assert.ok(after.hooks.PreToolUse.some(m => m.matcher === 'mcp__.*|WebFetch|Bash|PowerShell'));
+  assert.equal(J(await runAsync(['setup', '--no-path'], envFor(s))).data.hook.action, 'present');
 });
 
 test('setup: a second run is a no-op (rules unchanged, hook present, no new adapter, no new snapshot)', async () => {
