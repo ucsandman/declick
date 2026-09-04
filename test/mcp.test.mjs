@@ -212,7 +212,9 @@ test('the npx stdio path on windows does not print the DEP0190 shell warning', a
   const warnings = [];
   const onWarning = w => warnings.push(w.code);
   process.on('warning', onWarning);
-  const c = mcpClient({ transport: 'stdio', command: 'npx', args: ['node', 'fixtures/mcp-server.mjs'] });
+  // -c runs the command through the real npx.cmd shim without resolving a package: bare `npx node` installs the npm
+  // package named node (a whole runtime) from the registry, which cost a cold CI runner 13s and then the 30s timeout.
+  const c = mcpClient({ transport: 'stdio', command: 'npx', args: ['-c', 'node fixtures/mcp-server.mjs'] });
   try {
     await c.connect();
     const tools = await c.listTools();
