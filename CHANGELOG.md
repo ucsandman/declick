@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.3 (2026-09-05)
 
 - `.github/workflows/publish.yml`'s publish gate now packs the tarball and installs it (`npm i -g --prefix "$HOME/npm-global" ./declick-*.tgz`) before running qa against the installed binary, ahead of `npm publish`, so a file missing from `package.json`'s `files` list fails the release instead of shipping broken.
 - `site/api/stripe-webhook.js` fulfillment is idempotent on the subscription (or PaymentIntent, for the one-time support-yearly link) as the ledger: `metadata.license_key` is read before minting and written only after the license email sends, so a Stripe retry of an already-fulfilled session is a no-op.
