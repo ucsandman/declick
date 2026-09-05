@@ -10,8 +10,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
-    "qa": "bash scripts/qa-real-specs.sh",
+    "test": "node --test \"test/*.test.mjs\" scripts/check-site-counts.mjs",
+    "qa": "bash scripts/qa-real-specs.sh && node scripts/check-site-counts.mjs",
     "test:live": "node --test \"test/live/*.test.mjs\"",
     "ui": "node bin/declick.mjs ui",
     "prepublishOnly": "npm test"
@@ -44,6 +44,7 @@
     "src",
     "skills",
     "fixtures",
-    "README.md"
+    "README.md",
+    "NOTICE.md"
   ]
 }

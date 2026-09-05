@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { userInfo } from 'node:os';
 import { drain, PROTOCOL } from '../src/mcp-client.mjs';
 import { listManifests, loadManifest } from '../src/manifest.mjs';
+import { cmdQuote } from '../src/shared/windows-cmd-quote.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DECLICK_BIN = join(ROOT, 'bin', 'declick.mjs');
@@ -53,8 +54,6 @@ function shortError(e) {
 
 // Duplicates the win32 spawn shim in src/mcp-client.mjs on purpose: that module never exposes the parsed
 // `result` of initialize, nor the individual tools/list pages, and this script needs both, in bytes.
-const cmdQuote = a => `"${String(a).replace(/"/g, '""').replace(/(\\+)$/, '$1$1')}"`;
-
 function rawClient(command, args) {
   let child = null, buf = Buffer.alloc(0), seq = 0, dead = null, stderr = '';
   const pending = new Map();
@@ -80,8 +79,9 @@ function rawClient(command, args) {
   return {
     async connect() {
       const shell = process.platform === 'win32' && /^(npx|npm|pnpm|yarn|bunx)$/i.test(command);
+      // /v:off: same as src/mcp-client.mjs -- keeps a per-user delayed-expansion setting from expanding a !VAR! in an argument.
       child = shell
-        ? spawn('cmd.exe', ['/d', '/s', '/c', `"${[command, ...args.map(cmdQuote)].join(' ')}"`], { stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: true, windowsHide: true })
+        ? spawn('cmd.exe', ['/d', '/s', '/v:off', '/c', `"${[command, ...args.map(cmdQuote)].join(' ')}"`], { stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: true, windowsHide: true })
         : spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       child.stdin.on('error', () => {});
       child.stdout.on('data', d => { buf = drain(Buffer.concat([buf, d]), onMessage); });

@@ -118,3 +118,150 @@ test('a paid session with declick.support-yearly metadata and no matching price 
   assert.equal(body.tier, 'support');
   assert.ok(calls.some(c => c.url.includes('api.resend.com')), 'a license email should be sent');
 });
+
+// Replay + failure tests drive the handler twice (or inspect the ledger write) against a
+// fetch stub that keeps the subscription's metadata in memory across calls, standing in
+// for Stripe's own storage across a webhook retry.
+function makeLedgerStub({ lineItems, ledgerId, ledgerPath, resend, enforceCap }) {
+  const ledger = {};
+  const emails = [];
+  const fetchStub = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/line_items')) return { json: async () => ({ data: lineItems }) };
+    if (u.includes(`${ledgerPath}/${ledgerId}`)) {
+      if (opts?.method === 'POST') {
+        const body = new URLSearchParams(opts.body);
+        const value = body.get('metadata[license_key]');
+        // Stripe caps a metadata value at 500 characters; stand in for that here so a test
+        // can prove the write survives real buyer data instead of assuming it fits.
+        if (enforceCap && value.length > 500) return { json: async () => ({ error: { message: 'Value too long' } }) };
+        ledger.license_key = value;
+        return { json: async () => ({ metadata: ledger }) };
+      }
+      return { json: async () => ({ metadata: ledger }) };
+    }
+    if (u.includes('api.resend.com')) {
+      emails.push(opts);
+      if (resend?.fail) return { ok: false, status: 502, json: async () => ({}) };
+      return { ok: true, json: async () => ({ id: `email_${emails.length}` }) };
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+  return { fetchStub, ledger, emails };
+}
+
+async function postRaw(handler, event, fetchStub) {
+  const raw = Buffer.from(JSON.stringify(event));
+  const req = makeReq(raw, sign(raw, ENV.STRIPE_WEBHOOK_SECRET));
+  const res = makeRes();
+  const savedEnv = { ...process.env }; Object.assign(process.env, ENV);
+  const savedFetch = globalThis.fetch;
+  globalThis.fetch = fetchStub;
+  try {
+    await handler(req, res);
+  } finally {
+    globalThis.fetch = savedFetch;
+    process.env = savedEnv;
+  }
+  return res;
+}
+
+test('a Stripe retry of the same subscription checkout mints only once', async () => {
+  const handler = loadHandler();
+  const session = {
+    id: 'cs_test_replay', payment_status: 'paid', status: 'complete', metadata: {},
+    customer_details: { email: 'buyer@example.com', name: 'Buyer' },
+    subscription: 'sub_test_replay', payment_intent: null,
+  };
+  const event = { type: 'checkout.session.completed', livemode: false, data: { object: session } };
+  const lineItems = [{ quantity: 2, price: { lookup_key: 'declick_team_monthly', recurring: { interval: 'month' } } }];
+  const { fetchStub, emails } = makeLedgerStub({ lineItems, ledgerId: 'sub_test_replay', ledgerPath: '/subscriptions' });
+
+  const res1 = await postRaw(handler, event, fetchStub);
+  assert.equal(res1.statusCode, 200);
+  const body1 = JSON.parse(res1.body);
+  assert.equal(body1.sent, true);
+  assert.equal(emails.length, 1);
+
+  const res2 = await postRaw(handler, event, fetchStub);
+  assert.equal(res2.statusCode, 200);
+  const body2 = JSON.parse(res2.body);
+  assert.equal(body2.sent, false);
+  assert.equal(body2.alreadyFulfilled, true);
+  assert.equal(emails.length, 1, 'a replayed event must not mint or send a second license');
+});
+
+test('a Resend failure returns 500 and leaves the ledger unfulfilled so Stripe retries', async () => {
+  const handler = loadHandler();
+  const session = {
+    id: 'cs_test_failure', payment_status: 'paid', status: 'complete', metadata: {},
+    customer_details: { email: 'buyer@example.com', name: 'Buyer' },
+    subscription: 'sub_test_failure', payment_intent: null,
+  };
+  const event = { type: 'checkout.session.completed', livemode: false, data: { object: session } };
+  const lineItems = [{ quantity: 1, price: { lookup_key: 'declick_team_monthly', recurring: { interval: 'month' } } }];
+  const { fetchStub, ledger } = makeLedgerStub({ lineItems, ledgerId: 'sub_test_failure', ledgerPath: '/subscriptions', resend: { fail: true } });
+
+  const res = await postRaw(handler, event, fetchStub);
+  assert.equal(res.statusCode, 500);
+  assert.equal(ledger.license_key, undefined, 'the ledger must stay empty when the email failed to send');
+});
+
+test('a long email and name no longer overflow the ledger metadata cap: two deliveries send one email', async () => {
+  const handler = loadHandler();
+  // Stripe caps a metadata value at 500 characters. The minted license (email + name + ids
+  // baked into its payload) can cross that for ordinary buyers; the ledger must hold a
+  // fixed-size value (payload.id) that never can, so a real buyer's data can't defeat it.
+  const email = `${'a'.repeat(90)}@example.com`;
+  const name = 'B'.repeat(60);
+  const session = {
+    id: 'cs_test_longmeta', payment_status: 'paid', status: 'complete', metadata: {},
+    customer_details: { email, name },
+    subscription: 'sub_test_longmeta', payment_intent: null,
+  };
+  const event = { type: 'checkout.session.completed', livemode: false, data: { object: session } };
+  const lineItems = [{ quantity: 1, price: { lookup_key: 'declick_team_monthly', recurring: { interval: 'month' } } }];
+  const { fetchStub, ledger, emails } = makeLedgerStub({ lineItems, ledgerId: 'sub_test_longmeta', ledgerPath: '/subscriptions', enforceCap: true });
+
+  const res1 = await postRaw(handler, event, fetchStub);
+  assert.equal(res1.statusCode, 200);
+  const body1 = JSON.parse(res1.body);
+  assert.equal(body1.sent, true);
+  assert.equal(emails.length, 1);
+  assert.ok(ledger.license_key, 'the ledger write must succeed, not be silently dropped by the cap');
+  assert.ok(ledger.license_key.length < 500);
+
+  const res2 = await postRaw(handler, event, fetchStub);
+  assert.equal(res2.statusCode, 200);
+  const body2 = JSON.parse(res2.body);
+  assert.equal(body2.sent, false);
+  assert.equal(body2.alreadyFulfilled, true);
+  assert.equal(emails.length, 1, 'a long email and name must not defeat the ledger and cause a second mint+send');
+});
+
+test('a payment-mode session (support-yearly) ledgers on the PaymentIntent, not the subscription', async () => {
+  const handler = loadHandler();
+  const session = {
+    id: 'cs_test_pi', payment_status: 'paid', status: 'complete', metadata: { declick: 'support-yearly' },
+    customer_details: { email: 'buyer@example.com', name: 'Buyer' },
+    subscription: null, payment_intent: 'pi_test_123',
+  };
+  const event = { type: 'checkout.session.completed', livemode: false, data: { object: session } };
+  const lineItems = [{ quantity: 1, price: { lookup_key: null } }];
+  const { fetchStub, ledger, emails } = makeLedgerStub({ lineItems, ledgerId: 'pi_test_123', ledgerPath: '/payment_intents' });
+
+  const res1 = await postRaw(handler, event, fetchStub);
+  assert.equal(res1.statusCode, 200);
+  const body1 = JSON.parse(res1.body);
+  assert.equal(body1.sent, true);
+  assert.equal(body1.tier, 'support');
+  assert.equal(emails.length, 1);
+  assert.ok(ledger.license_key, 'the PaymentIntent metadata should carry the ledger value');
+
+  const res2 = await postRaw(handler, event, fetchStub);
+  assert.equal(res2.statusCode, 200);
+  const body2 = JSON.parse(res2.body);
+  assert.equal(body2.sent, false);
+  assert.equal(body2.alreadyFulfilled, true);
+  assert.equal(emails.length, 1, 'a replayed payment-mode event must not mint or send a second license');
+});

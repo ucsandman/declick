@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { EXIT, RESERVED, camel } from '../output.mjs';
 import { oneLine } from '../describe.mjs';
+import { cmdQuote } from '../shared/windows-cmd-quote.mjs';
 
 const kebab = s => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 const fail = (msg, exit = EXIT.ERROR) => Object.assign(new Error(msg), { exit });
@@ -12,9 +13,6 @@ const HELP_MS = 10000;
 const MUTATING = new Set('create add set update delete remove rm push write apply deploy install uninstall kill stop start restart reset drop clear mv move cp copy edit patch put post send publish run exec'.split(' '));
 // Bracket words every usage line carries. They stand for flags, not for an argument the agent supplies.
 const GENERIC = new Set('options option flags flag opts args arg argument arguments command commands subcommand subcommands params parameters'.split(' '));
-// cmd.exe runs every .cmd/.bat and splits its line on & | > < ^ outside quotes, so EVERY argument is quoted,
-// not just the ones with a space: an inner quote is doubled and a trailing backslash run cannot escape the close.
-const cmdQuote = a => `"${String(a).replace(/"/g, '""').replace(/(\\+)$/, '$1$1')}"`;
 // A pager turns help into a hang and colour escapes turn it into noise no parser can read.
 const childEnv = () => ({ ...process.env, NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat' });
 
@@ -23,6 +21,7 @@ function run(argv, timeoutMs) {
   return new Promise(res => {
     // Node refuses to spawn .cmd/.bat without a shell, and npm, gh and yarn install as .cmd on Windows.
     const shell = /\.(cmd|bat)$/i.test(argv[0]);
+    // cmd.exe splits its line on & | > < ^ outside quotes, so EVERY argument is quoted, not just the ones with a space.
     const args = argv.slice(1).map(a => (shell ? cmdQuote(a) : a));
     let out = '', err = '';
     const p = spawn(argv[0], args, { shell, env: childEnv(), timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });

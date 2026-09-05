@@ -21,4 +21,23 @@ jobs:
       - run: npm run qa
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # The qa run above still exercises this checkout, not what npm actually ships: a file missing from
+      # package.json's "files" list passes every test and every qa check here and still ships broken. Pack the
+      # real tarball and install it globally under a throwaway prefix so nothing from the checkout can leak
+      # onto the PATH, then rerun qa against the installed `declick` binary before the point of no return.
+      # `npm config set prefix` writes to the npmrc that actions/setup-node points NPM_CONFIG_USERCONFIG at
+      # (shared across steps, not this job's throwaway HOME), so it never actually redirected the install;
+      # `--prefix` passed straight to `npm i -g` does.
+      - name: qa against the packed tarball
+        run: |
+          npm pack
+          export HOME="$RUNNER_TEMP/declick-tarball-home"
+          mkdir -p "$HOME"
+          npm i -g --prefix "$HOME/npm-global" ./declick-*.tgz
+          export PATH="$HOME/npm-global/bin:$PATH"
+          declick version
+          declick doctor --json
+          QA_FROM_NPM=1 npm run qa
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - run: npm publish --provenance --access public

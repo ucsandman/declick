@@ -13,11 +13,14 @@ test('npm pack ships bin, src, fixtures, README and nothing else', () => {
   const r = spawnSync('npm', ['pack', '--dry-run', '--json'], { encoding: 'utf8', shell: true });
   assert.equal(r.status, 0, r.stderr);
   const files = JSON.parse(r.stdout)[0].files.map(f => f.path);
-  for (const f of ['bin/declick.mjs', 'bin/run.mjs', 'src/ui.mjs', 'src/guard.mjs', 'skills/declick/SKILL.md', 'fixtures/petstore.json', 'README.md', 'LICENSE', 'package.json']) assert.ok(files.includes(f), `missing ${f}`);
+  for (const f of ['bin/declick.mjs', 'bin/run.mjs', 'src/ui.mjs', 'src/guard.mjs', 'src/shared/windows-cmd-quote.mjs', 'skills/declick/SKILL.md', 'fixtures/petstore.json', 'README.md', 'LICENSE', 'NOTICE.md', 'package.json']) assert.ok(files.includes(f), `missing ${f}`);
   assert.ok(!files.some(f => f.startsWith('test/') || f.startsWith('site/') || f.startsWith('.handoff/') || f.startsWith('.github/')), files.join(','));
 });
 test('workflows and changelog exist', () => {
   for (const f of ['.github/workflows/ci.yml', '.github/workflows/publish.yml', 'CHANGELOG.md']) assert.ok(existsSync(f), f);
   assert.match(readFileSync('.github/workflows/publish.yml', 'utf8'), /npm publish --provenance --access public/);
   assert.match(readFileSync('CHANGELOG.md', 'utf8'), /## 0\.1\.0/);
+  const publishYml = readFileSync('.github/workflows/publish.yml', 'utf8');
+  const packedQa = publishYml.indexOf('QA_FROM_NPM=1 npm run qa'), publish = publishYml.indexOf('npm publish --provenance');
+  assert.ok(packedQa !== -1 && packedQa < publish, 'publish.yml must run qa against the packed tarball before npm publish');
 });

@@ -412,7 +412,7 @@ Without `DECLICK_LIVE=1` they report as skipped rather than passing on no work.
 
 ## Releases
 
-Bump `version` in package.json and add a CHANGELOG entry. The version is also embedded in `skills/declick/SKILL.md` (a test renders it from the command table and fails on a stale one, which is how the 0.6.1 push went red on CI) and in `site/index.html` and `site/controls.html`, so bump those in the same commit. Then `git tag v0.x.y && git push --tags`. The publish workflow runs the tests and publishes with provenance.
+Bump `version` in package.json and add a CHANGELOG entry. The version is also embedded in `skills/declick/SKILL.md` (a test renders it from the command table and fails on a stale one, which is how the 0.6.1 push went red on CI) and in `site/index.html` and `site/controls.html`, so bump those in the same commit. Then `git tag v0.x.y && git push --tags`. The publish workflow runs `npm test`, then `npm run qa` from the checkout, then packs the tarball and installs it globally under a throwaway HOME, running `declick version`, `declick doctor --json` and `QA_FROM_NPM=1 npm run qa` against the installed package, and only then `npm publish --provenance`.
 
 ## License
 

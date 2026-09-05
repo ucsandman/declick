@@ -1,12 +1,11 @@
 import { spawn } from 'node:child_process';
 import { EXIT } from './output.mjs';
+import { cmdQuote } from './shared/windows-cmd-quote.mjs';
 
 export const PROTOCOL = '2025-03-26';
 const fail = (msg, exit = EXIT.ERROR) => Object.assign(new Error(msg), { exit });
 const ms = t => Number(process.env.DECLICK_TIMEOUT_MS) || t || 30000;
 const rpcError = (e, where) => fail(`${where}: ${e.message || 'server error'}${e.code ? ` (${e.code})` : ''}`);
-// cmd.exe splits on & | > < ^ outside quotes, so an argument handed to a shell is always quoted, never bare.
-const cmdQuote = a => `"${String(a).replace(/"/g, '""').replace(/(\\+)$/, '$1$1')}"`;
 
 // MCP stdio is one JSON object per line; some servers still use the LSP-style Content-Length framing, so accept both.
 export function drain(buf, onMessage) {
@@ -74,8 +73,9 @@ function stdioClient({ command, args = [], timeout }) {
       // Windows resolves npx/npm/pnpm through .cmd shims, which node refuses to spawn directly since 20.19.
       const shell = process.platform === 'win32' && /^(npx|npm|pnpm|yarn|bunx)$/i.test(command);
       // cmd.exe spawned directly (not shell:true) avoids Node's DEP0190 warning; command and args become one quoted string per cmd.exe /c rules.
+      // /v:off: delayed expansion is off by default but can be enabled per-user (HKCU\Software\Microsoft\Command Processor); with it on, a !VAR! in an argument would expand even though cmdQuote never guards against it.
       child = shell
-        ? spawn('cmd.exe', ['/d', '/s', '/c', `"${[command, ...args.map(cmdQuote)].join(' ')}"`], { stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: true, windowsHide: true })
+        ? spawn('cmd.exe', ['/d', '/s', '/v:off', '/c', `"${[command, ...args.map(cmdQuote)].join(' ')}"`], { stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: true, windowsHide: true })
         : spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
       child.stdin.on('error', () => {}); // a server that exits mid-write surfaces as the exit below, not as EPIPE
       let buf = Buffer.alloc(0);

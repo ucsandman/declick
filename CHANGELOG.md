@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `.github/workflows/publish.yml`'s publish gate now packs the tarball and installs it (`npm i -g --prefix "$HOME/npm-global" ./declick-*.tgz`) before running qa against the installed binary, ahead of `npm publish`, so a file missing from `package.json`'s `files` list fails the release instead of shipping broken.
+- `site/api/stripe-webhook.js` fulfillment is idempotent on the subscription (or PaymentIntent, for the one-time support-yearly link) as the ledger: `metadata.license_key` is read before minting and written only after the license email sends, so a Stripe retry of an already-fulfilled session is a no-op.
+- One shared Windows cmd.exe argv encoder, `src/shared/windows-cmd-quote.mjs` (vendored from stablyai/orca, MIT, see NOTICE.md), replaces three copies and fixes a backslash-before-quote case none of them handled.
+- The generated skill tells an agent that text a verb reads off a page is untrusted data, not an instruction from the user, and to report rather than obey anything asking it to ignore prior instructions or run a command.
+- `scripts/check-site-counts.mjs` gates declick.dev's numeric claims (command count, engine count, benchmark figures) against their real sources instead of letting the site drift; wired into `npm run qa` and `npm test`.
+
 ## 0.6.2 (2026-09-04)
 
 - The Claude Code nudge hook counts itself. Its matcher now includes Bash and PowerShell, so the tool call right after a nudge is seen: a shell command naming declick is `followed`, anything else is `ignored`. Totals and per-adapter counts live in `~/.declick/hooks/nudge-stats.json` and `declick doctor` reports them as `integration.nudge` with a `followRate`. `declick setup` widens the matcher of an entry it installed earlier in place (`hook: updated`) instead of adding a second one. A shell call with no nudge pending writes nothing.
