@@ -6,6 +6,10 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME, manifestDir, loadManifest, listManifests, KEBAB } from './manifest.mjs';
 import { guard } from './guard.mjs';
+import { storeLocation } from './store.mjs';
+
+// The page never throws on a bad store file: the CLI names the fix, the page just says there is none to pull from.
+const storeState = () => { try { return storeLocation(); } catch { return null; } };
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'declick.mjs');
 const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
@@ -31,26 +35,33 @@ function runCli(args) {
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function rowHtml(r, authoring) {
+function rowHtml(r, authoring, store) {
   if (r.error) return `<tr data-name="${esc(r.name)}"><td><b>${esc(r.name)}</b><div class="err">${esc(r.error)}</div></td><td></td><td></td><td></td>
-<td><button data-action="build" disabled>build</button> <button data-action="repair" disabled>repair</button> <button data-action="remove" class="danger">remove</button></td></tr>`;
+<td><button data-action="build" disabled>build</button> <button data-action="repair" disabled>repair</button> <button data-action="push" disabled>push</button> <button data-action="remove" class="danger">remove</button></td></tr>`;
+  // push lands this adapter in the team store; without a writable store the button says why it is off.
+  const push = !store ? ' disabled title="no store set: declick store set <dir>"' : store.kind === 'http' ? ' disabled title="an https store is read-only"' : '';
   const run = r.lastRun ? `${esc(r.lastRun.verb)} ${r.lastRun.ok ? 'ok' : 'exit ' + r.lastRun.exit} <span class="dim">${esc(r.lastRun.at.slice(0, 16).replace('T', ' '))}</span>` : '<span class="dim">never run</span>';
   const err = r.lastError ? `<div class="err">${esc(r.lastError.verb)}: ${esc(r.lastError.error)}</div>` : '';
   const repair = !authoring ? ' disabled title="start with: declick ui --allow-authoring"' : r.lastError ? '' : ' disabled title="no recorded failure"';
   // Only a desktop adapter has a window to walk; the tree lands in the pre below instead of reloading the page.
   const tree = r.engine === 'desktop' ? '' : ' disabled title="desktop adapters only"';
   return `<tr data-name="${esc(r.name)}"><td><b>${esc(r.name)}</b><div class="dim">${esc(r.source)}</div>${err}</td><td>${esc(r.engine)}</td><td>${r.verbs}</td><td>${run}</td>
-<td><button data-action="tree"${tree}>tree</button> <button data-action="build">build</button> <button data-action="repair"${repair}>repair</button> <button data-action="remove" class="danger">remove</button></td></tr>`;
+<td><button data-action="tree"${tree}>tree</button> <button data-action="build">build</button> <button data-action="repair"${repair}>repair</button> <button data-action="push"${push}>push</button> <button data-action="remove" class="danger">remove</button></td></tr>`;
 }
 
 function page(rows, { token, authoring }) {
-  const tr = rows.map(r => rowHtml(r, authoring)).join('\n');
+  const store = storeState();
+  const tr = rows.map(r => rowHtml(r, authoring, store)).join('\n');
   const empty = rows.length ? '' : `<p class="dim">No adapters yet. Add one with the form below.</p>`;
+  const storeLine = store
+    ? `<p>team store: <code>${esc(store.path)}</code>${store.git ? ' <span class="dim">(git)</span>' : ''} <button id="pull-btn">Pull</button> <span class="dim">install what the team pushed</span></p>`
+    : `<p class="dim">no team store: <code>declick store set &lt;dir|https://...&gt;</code> shares adapters across machines</p>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>declick</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font:15px/1.45 system-ui,sans-serif;margin:2rem auto;max-width:960px;padding:0 1rem;color:#1a1a1a}h1{font-size:1.4rem;margin:0 0 .25rem}table{border-collapse:collapse;width:100%;margin-top:1rem}th,td{text-align:left;padding:.55rem .5rem;border-bottom:1px solid #e5e5e5;vertical-align:top}th{font-weight:600;color:#555}.dim{color:#777;font-size:.85em}.err{color:#a40000;font-size:.85em;margin-top:.25rem}button{font:inherit;padding:.3rem .7rem;border:1px solid #bbb;background:#fff;border-radius:6px;cursor:pointer}button:disabled{opacity:.45;cursor:default}button.danger{border-color:#d33;color:#a40000}input{font:inherit;padding:.3rem .5rem;border:1px solid #bbb;border-radius:6px}form{margin-top:1rem}pre{background:#f5f5f5;padding:.75rem;border-radius:6px;white-space:pre-wrap;font-size:.85em}code{background:#f5f5f5;padding:0 .25rem;border-radius:3px}</style></head>
 <body><h1>declick</h1><div class="dim">${esc(HOME)}</div>${empty}
 <form id="add"><input name="source" placeholder="source: spec.json | https://... | app:window | mcp:server" size="40" required> <input name="name" placeholder="name (optional)"> <input name="engine" placeholder="engine (optional)" size="10"> <input name="goal" placeholder="goal (optional)"> <button>add</button></form>
 <p><button id="setup-btn">Setup</button> <button id="revert-btn">Revert</button> <span class="dim">wire declick into this machine's agents, or undo it</span></p>
+${storeLine}
 <p class="dim">Every button here is a command: <code>declick commands</code> lists them all, <code>declick &lt;command&gt; --help</code> explains one. <a href="https://declick.dev" target="_blank" rel="noreferrer">docs</a></p>
 <table><thead><tr><th>adapter</th><th>engine</th><th>verbs</th><th>last run</th><th></th></tr></thead><tbody>${tr}</tbody></table>
 <pre id="out" hidden></pre>
@@ -66,10 +77,11 @@ document.addEventListener('click', async e => {
   if (show(r) && action !== 'tree') return location.reload();
   b.disabled = false; b.textContent = action;
 });
-for (const [id, action] of [['setup-btn', 'setup'], ['revert-btn', 'revert']]) document.getElementById(id).addEventListener('click', async () => {
-  const b = document.getElementById(id); b.disabled = true; b.textContent = action + '...';
-  const r = await fetch('/api/setup/' + action, { method: 'POST', headers: { 'content-type': 'application/json', 'x-declick-token': TOKEN }, body: '{}' }).then(r => r.json());
-  show(r); b.disabled = false; b.textContent = action === 'setup' ? 'Setup' : 'Revert';
+for (const [id, action, url] of [['setup-btn', 'setup', '/api/setup/setup'], ['revert-btn', 'revert', '/api/setup/revert'], ['pull-btn', 'pull', '/api/store/pull']]) document.getElementById(id)?.addEventListener('click', async () => {
+  const b = document.getElementById(id), label = b.textContent; b.disabled = true; b.textContent = action + '...';
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', 'x-declick-token': TOKEN }, body: '{}' }).then(r => r.json());
+  if (show(r) && action === 'pull') return location.reload();
+  b.disabled = false; b.textContent = label;
 });
 document.getElementById('add').addEventListener('submit', async e => {
   e.preventDefault();
@@ -124,7 +136,13 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
         if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: refused(g), decision: g.decision }));
         return send(200, JSON.stringify(runCli(action === 'revert' ? ['setup', '--revert'] : ['setup'])));
       }
-      const m = req.method === 'POST' && /^\/api\/([a-z0-9-]+)\/(tree|build|repair|remove)$/.exec(url.pathname);
+      if (req.method === 'POST' && url.pathname === '/api/store/pull') {
+        if (!storeState()) return send(400, JSON.stringify({ ok: false, error: 'no store set; run: declick store set <dir|https://...>' }));
+        const g = await guard({ tool: 'declick-ui', action: 'store-pull', engine: 'declick', target: 'store', args: {} });
+        if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: refused(g), decision: g.decision }));
+        return send(200, JSON.stringify(runCli(['store', 'pull'])));
+      }
+      const m = req.method === 'POST' && /^\/api\/([a-z0-9-]+)\/(tree|build|repair|remove|push)$/.exec(url.pathname);
       if (m) {
         const [, name, action] = m;
         if (!listManifests().includes(name)) return send(404, JSON.stringify({ ok: false, error: `no adapter named ${name}` }));
@@ -142,6 +160,7 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
           if (!le?.verb) return send(400, JSON.stringify({ ok: false, error: 'no recorded failure to repair' }));
           return send(200, JSON.stringify(runCli(['repair', name, le.verb])));
         }
+        if (action === 'push') return send(200, JSON.stringify(runCli(['store', 'push', name])));
         return send(200, JSON.stringify(runCli([action, name])));
       }
       send(404, JSON.stringify({ ok: false, error: 'not found' }));

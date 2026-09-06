@@ -100,6 +100,7 @@ auth env: PETSTORE_PETSTORE_AUTH, PETSTORE_API_KEY</span></code></pre>
 <a href="#engines">engines</a>
 <a href="#compared">MCP and screenshot loops</a>
 <a href="#setup">setup</a>
+<a href="#store">team store</a>
 <a href="#desktop">Windows apps</a>
 <a href="#governance">governance</a>
 <a href="#agents">any agent</a>
@@ -404,6 +405,30 @@ common: --json --fields --limit --rows --dry-run --full --help   exit: 0 ok 1 er
 </div>
 </section>
 
+<section class="sec" id="store">
+<h2 class="head-gap">Push an adapter once. Every machine on the team pulls it.</h2>
+<div class="pane head-gap">
+<div>
+<p class="prose">A store is a directory the team already shares, a git checkout, or a read-only https base, holding one export bundle per adapter plus an index. <code>declick store push</code> writes the bundle and the index entry; <code>declick store pull</code> reads the index on every other machine and installs what changed, refusing an adapter that answers to a different service unless you pass <code>--force</code>. A pull never overwrites defaults you already tuned locally, and a store that is a git checkout commits and pushes on its own. A bundle carries auth key names, never values, so pushing one never leaks a key.</p>
+</div>
+<div>
+<figure class="block">
+<pre tabindex="0" role="group" aria-label="Output of declick store set, push and pull"><code><span class="cmd"><span class="sig">$</span> declick store set ~/team/declick-store
+<span class="sig">$</span> declick store push petstore
+<span class="sig">$</span> declick store pull</span>
+<span class="out">store: ~/team/declick-store (dir)
+store: ~/team/declick-store
+  petstore	pushed
+git: none
+store: ~/team/declick-store
+  petstore	installed	~/petstore.json
+git: none</span></code></pre>
+<figcaption><span class="cap">One machine pushes petstore; a second, with no adapters of its own, pulls it from the shared store.</span><span class="chip">exit 0</span></figcaption>
+</figure>
+</div>
+</div>
+</section>
+
 <section class="sec" id="desktop">
 <h2 class="head-gap">Windows apps replay as element paths, not pixels</h2>
 <div class="pane head-gap">
@@ -563,7 +588,7 @@ export async function declick(adapter, verb, args = []) {
 
 <section class="sec" id="commands">
 <h2 class="head-gap">declick honors the contract it compiles</h2>
-<p class="prose head-gap">All 35 commands take <code>--json</code> and return the same envelope. <code>declick commands</code> prints the table as data: every command with its positionals, its flags, whether it mutates, whether it previews, and runnable examples. The shipped declick skill is rendered from that same table, so what an agent reads cannot drift from what the binary does. An agent with only a shell can compile, inspect, run, repair and audit. <code>declick ui</code> serves one page on 127.0.0.1 with the same buttons, for the parts a human should decide.</p>
+<p class="prose head-gap">All 36 commands take <code>--json</code> and return the same envelope. <code>declick commands</code> prints the table as data: every command with its positionals, its flags, whether it mutates, whether it previews, and runnable examples. The shipped declick skill is rendered from that same table, so what an agent reads cannot drift from what the binary does. An agent with only a shell can compile, inspect, run, repair and audit. <code>declick ui</code> serves one page on 127.0.0.1 with the same buttons, for the parts a human should decide.</p>
 <div class="split head-gap">
 <div>
 <figure class="block">
@@ -621,7 +646,7 @@ export async function declick(adapter, verb, args = []) {
 <li>version <span class="dim">the declick and node versions</span></li>
 <li>help <span class="dim">the usage table, or one command row</span></li>
 </ul>
-<p class="note"><code>declick commands --json</code> returns <code>"meta":{"count":35,"truncated":false}</code>.</p>
+<p class="note"><code>declick commands --json</code> returns <code>"meta":{"count":36,"truncated":false}</code>.</p>
 </div>
 </div>
 <figure class="block">

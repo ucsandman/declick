@@ -1,5 +1,9 @@
 # Errors
 
+## 2026-09-06
+
+- The first capture of the site's team-store block printed `C:\Projects\declick\fixtures\petstore.json` as the pulled adapter's source, a repo path on a public page that the ~-shortening rule in docs/DESIGN.md does not cover (fix: recaptured with the fixture copied under a scratch "home" so the source prints as `~/petstore.json`; lesson: any site capture that shows an adapter `source` starts from a file under a stand-in home, never from the repo's fixtures path).
+
 ## 2026-09-03
 
 - A reviewer in the second fix-findings workflow ran `git stash` on the shared working tree to prove a test failed without its fix; the `git stash pop` conflicted on a sibling agent's edit to `src/skill.mjs`, git kept the stash, and the whole first fix pass (25 files) sat reverted under six concurrent agents. Reconciled by classifying each stashed file against HEAD and the stash, restoring sixteen from the stash and three-way merging four (fix: `git-tree-guard` hook denies stash/checkout/restore/reset/clean in Bash, the fix-findings workflow injects a shared-tree block into every prompt, and the REVERT-TO-RED dispatch block now says baselines come from copies).

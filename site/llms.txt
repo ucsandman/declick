@@ -1,6 +1,6 @@
 # declick
 
-> A compiler for the interface your agent already has: the shell. MCP makes an agent carry every tool's schema on every turn; declick loads one verb at a time. declick compiles any of ten sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, a native Windows window, or a chain of verbs from adapters already built, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 35 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
+> A compiler for the interface your agent already has: the shell. MCP makes an agent carry every tool's schema on every turn; declick loads one verb at a time. declick compiles any of ten sources, an OpenAPI or GraphQL API, an MCP server, a Postman or Insomnia collection, a HAR capture, a SQLite database, a CLI tool's own --help, a browser page, a native Windows window, or a chain of verbs from adapters already built, into a command line tool with named verbs. Every verb returns one envelope with five exit codes, and declick's own 36 commands honor the same contract, so an agent learns the shape once. Governance and credential scoping are readable before anything is installed.
 
 - [Source](https://github.com/ucsandman/declick): the repository
 - [Package](https://www.npmjs.com/package/declick): the published package
@@ -25,6 +25,7 @@
 - declick audit [--adapter n] [--since t] [--failed] [--sum]   the run log: what ran, what governance decided; --sum adds it up by adapter and in total
 - declick ui [--port N] [--open] [--allow-authoring]   local page with add, build, repair, remove
 - declick daemon start|stop|status   keep stdio MCP servers warm between calls, so only the first run pays a server's startup
+- declick store [set <dir|https://...> | push <n>|--all | pull [n]] [--force] [--no-git]   share adapters through a team-wide directory, git checkout or https base of export bundles
 
 ## Output
 

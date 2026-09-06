@@ -12,3 +12,10 @@
 - The marketing site is two static routes with zero JavaScript, one shared stylesheet, self-hosted OFL fonts (Archivo, Spline Sans Mono), and every terminal block captured from the shipped 0.3.0 binary with the guard keys unset unless shown; docs/DESIGN.md holds the identity and the recapture procedure.
 - The nudge hook (Claude Code PreToolUse) matches Bash and PowerShell as well as MCP and WebFetch, so it can count whether the call after a nudge was a declick call. The count is the answer to the adoption risk a reviewer named: a nudge that is wrong too often shows as a low followRate in doctor, not as users ripping the hook out. A shell call with no nudge pending writes nothing (2026-09-04).
 - The site tiers the ten engines: openapi, mcp, sqlite and compose lead as the four most agents need and the six others sit below them with the note that web, desktop and cli drive something live and carry its flakiness. Fewer engines harder is positioning, not deletion; the engines that cannot be copied from the MCP spec stay (2026-09-04).
+
+## 2026-09-06
+
+- The team store is a shared folder, a git checkout, or a read-only https base of `declick export` bundles, not a hosted registry or nix packaging: nix caches binaries per machine rather than sharing a compiled adapter across a team, and it is WSL-only on Windows, where declick otherwise runs native. declick's win is the compiled adapter itself, and sharing that needs no service, no auth server and no publish step beyond a file copy or a git push.
+- Store wins on pull, local wins on push: a pull never has to guess whether a local edit was intentional, and a push never has to merge someone else's state into what a machine just built.
+- Defaults in a pulled bundle land only where the machine has none yet; a user's tuned defaults are never overwritten by a teammate's.
+- The store ships free for everyone, not a seat-gated feature: sharing adapters is table stakes for a team tool, not a paid tier.

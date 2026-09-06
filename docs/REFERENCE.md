@@ -169,6 +169,40 @@ A blocked run is exit 3, `ok:false`, `error: "blocked by policy: <reason>"`, and
 
 Commands: `declick policy` (path, existence, one line per rule), `declick policy --check <adapter> <verb>` (the verb's mutating flag, the winning rule, the decision and reason), `declick policy --example` (an example file as data).
 
+## The team store (`store.json`)
+
+`$DECLICK_HOME/store.json` holds `{"path": "<dir or https://...>"}`, the store `declick store set <dir|https://...>` remembers. `DECLICK_STORE` wins over the file when set, so one shell or CI job can point at a different store without rewriting it; neither set is "no store", which every store action reports with the fix (`declick store set <dir|https://...>`).
+
+A store is a directory (a synced folder, a network share, a git checkout) or a read-only https base. It holds one bundle file per adapter, `<name>.json`, in the exact shape `declick export` prints (`{manifest, recipes, defaults?}`), plus `index.json` so a listing, and an https store, never has to open every bundle:
+
+| `index.json` field | Meaning |
+|---|---|
+| `name` | Adapter name |
+| `engine` | Adapter engine |
+| `verbs` | Verb count |
+| `source` | The adapter's build source |
+| `hash` | sha256 of `{manifest, recipes}` (16 hex chars); defaults never affect the hash |
+| `pushedAt` | ISO timestamp of the push that wrote this entry |
+| `by` | `<username>@<hostname>` of whoever pushed it |
+
+`declick store push <name>` (or `--all`) writes the bundle and the index entry; local wins on push, so pushing never reads the store first. `declick store pull [name]` (no name pulls everything the index lists) compares each adapter's hash against what is local and installs per this outcome:
+
+| Outcome | Meaning |
+|---|---|
+| `installed` | Not present locally; manifest, launcher, skill and any defaults are written |
+| `updated` | Hash differs; rebuilt like `installed`, but existing local defaults are kept, never overwritten by the bundle's |
+| `unchanged` | Hash matches; nothing written |
+| `conflict` | Present locally with a different `source`, `engine` or `baseUrl`; exit 1, nothing written, `declick store pull <name> --force` replaces it |
+| `error` | The bundle is missing or unreadable; the other adapters in the same pull still proceed |
+
+`meta` on a pull carries `{store, git, installed, updated, unchanged, conflicts, errors}` (plus `wouldChange` under `--dry-run`); on a push, `{store, pushed, unchanged, git}`. `declick store` with no action, or `pull --dry-run`, prints the same plan as a real pull without writing: each row's state is `new`, `update`, `in-sync` or `local-only` (present locally, never pushed).
+
+If the store root has a `.git` directory and `--no-git` is absent, pull runs `git pull --ff-only --quiet` first (`meta.git: "pulled"`); push runs `git add`, `git commit -m "declick: push <names>"`, then `git push`, reporting `"pushed"`, `"committed (no remote)"`, `"unchanged"` (nothing to commit), `"none"` (not a git checkout) or `"skipped"` (`--no-git`). A git failure is exit 1 naming the command and the fix (install git, resolve the checkout, or pass `--no-git`).
+
+An https store is read-only: `declick store push` against one fails naming the base as read-only. Pull reads `<base>/index.json`, then `<base>/<name>.json` per adapter; a missing index is exit 2. A bundle whose `source` is a local file path installs and runs fine on another machine, since the manifest is already compiled, but `declick build` there needs that file to exist at that path.
+
+A store is trusted the way a package registry is: a pulled bundle can point an adapter at any base URL, so only share a store with people who could already write your `~/.declick`. Every install a pull performs prints its `source` and `baseUrl`.
+
 ## Compose chain files
 
 A chain file is JSON. `declick add compose:<file>` compiles it; a plain `.json` whose top-level object carries `"compose": true` routes to the compose engine on its own. `declick compose <name> --steps <file|->` is the same compile (`-` reads stdin and keeps a copy the adapter owns, so `declick build <name>` still works); `declick compose <name>` prints the chain step by step.
@@ -245,6 +279,7 @@ On the run side, an mcp verb tries the daemon first with a 300 ms connect budget
 | `DECLICK_MAX_BYTES` | Byte ceiling on a run's `data`, default 8192, `0` turns the cap off |
 | `DECLICK_CACHE` | `off` bypasses `--cache` everywhere and stores nothing |
 | `DECLICK_POLICY` | path of the policy file, default `~/.declick/policy.json` |
+| `DECLICK_STORE` | team store location (dir or https://...), overrides `~/.declick/store.json` |
 | `DECLICK_ENV_ALLOW` | Comma-separated key names allowed to cross origins |
 | `DECLICK_<NAME>_BASE_URL` | Per-adapter base URL override |
 | `DECLICK_TIMEOUT_MS` | mcp and http client timeout default |

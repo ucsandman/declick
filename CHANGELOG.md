@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0 (2026-09-06)
+
+- `declick store` shares adapters across a team: `set <dir|https://...>` remembers a shared folder, git checkout or read-only https base; `push <name>|--all` writes an export bundle plus an `index.json` entry; `pull [name]` installs what changed (`installed`, `updated`, `unchanged`, `conflict`, `error`), refusing a conflicting adapter unless `--force`. Store wins on pull, local wins on push, and a machine's own tuned defaults are never overwritten by a pulled bundle. A git checkout store pulls with `git pull --ff-only` and pushes with add/commit/push (`--no-git` skips both); an https store is read-only.
+- `declick export` now includes `defaults`, and `declick import` writes them onto a machine that has none yet, so a bundle round-trips flag defaults along with the manifest and recipes.
+- `declick doctor` reports the store as a `store` row (path, kind, git, existence).
+- `declick ui` shows the store path with a Pull button, and each adapter row gets a push button.
+
 ## 0.6.3 (2026-09-05)
 
 - `.github/workflows/publish.yml`'s publish gate now packs the tarball and installs it (`npm i -g --prefix "$HOME/npm-global" ./declick-*.tgz`) before running qa against the installed binary, ahead of `npm publish`, so a file missing from `package.json`'s `files` list fails the release instead of shipping broken.

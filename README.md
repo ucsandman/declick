@@ -223,6 +223,20 @@ declick defaults petstore --clear      # drop the file
 
 The `*` scope applies to every verb, a verb scope wins over `*`, and a flag typed on the command line wins over both. `meta.defaults` lists the keys a run took from the file, `declick describe <name>` prints them on a `defaults:` line, and `--no-defaults` or `DECLICK_DEFAULTS=off` ignores the file. A key the verb does not accept is exit 1 naming the file and the key, so a stale default is loud rather than silent.
 
+## Share adapters with your team
+
+A store is a directory the team already shares (a synced folder, a network share, a git checkout) or a read-only https base. It holds one bundle per adapter, in the shape `declick export` prints, plus an `index.json` for listing. A bundle carries auth key names, never values, so pushing one never leaks a key; each machine still reads its own env or vault.
+
+```bash
+declick store set ~/team/declick-store   # or a git checkout, or https://example.com/store
+declick store push petstore              # or --all
+declick store pull                       # or declick store pull petstore
+```
+
+`declick store` with no action prints status, one line per adapter: `new`, `update`, `in-sync` or `local-only` against the store. Pull installs what changed; an adapter whose source, engine or baseUrl differs from what is already local is a conflict (exit 1, nothing written) unless `--force`. Store wins on pull, local wins on push, and defaults in a bundle land only where the machine has none yet, so a teammate's tuned defaults are never overwritten. If the store root has a `.git` directory, pull runs `git pull --ff-only` first and push commits and pushes; `--no-git` skips both, and an https store is read-only (push is refused).
+
+A store is trusted like a package registry: a pulled bundle can point an adapter at any base URL, so only share a store with people who could already write your `~/.declick`. `declick store pull` prints the source and baseUrl of everything it installs.
+
 ## Warm MCP servers
 
 A stdio MCP server is spawned per call, and the spawn is most of what the call costs: a real filesystem server measured 4.8 seconds, almost none of it the tool. `declick daemon start` keeps those servers alive between runs.
@@ -364,7 +378,8 @@ An agent with only a shell can do all of this. Every command takes `--json` and 
 | `declick add <source> --name n [--verbs a,b \| --tag t] [--engine e] [--host h] [--url u] [--force] [--dry-run]` | build from any source in the engine table above; `--verbs` or `--tag` subsets a large spec, `--engine` overrides detection, `--host` picks the API host in a HAR capture, `--url` gives a GraphQL schema file its endpoint, `--force` overwrites a launcher or skill name collision (a name that already resolves on PATH, such as `calc` on Windows, is refused without it), `--dry-run` compiles and lints without writing (refused for `--goal` authoring, which has no preview) |
 | `declick build <n> [--dry-run]` / `declick lint <n>` / `declick skill [<n>] [--print] [--force] [--dry-run]` | recompile from the stored source, check the contract, regenerate SKILL.md without refetching; `--print` writes one adapter's SKILL.md text to stdout instead of disk, `--dry-run` lists the paths it would write |
 | `declick remove <n> [<verb>] [--force] [--dry-run]` | delete the manifest, the launcher and the skill, or just one verb. Removing a verb exits 2 if it does not exist, exit 1 if the adapter is not desktop-engine (its verbs come from the spec, not per-verb files) or if it is the last recipe without `--force`; deleting the last verb removes the whole adapter (`adapterRemoved: true`). `--dry-run` previews what would be deleted. |
-| `declick export <n>` / `declick import [<file>\|-] [--force] [--dry-run]` | a JSON bundle of manifest plus recipes that rebuilds on another machine through lint. `import` reads `export`'s envelope as it comes, so `declick export petstore \| declick import -` round-trips. It refuses to replace an adapter of the same name whose `source`, `engine` or `baseUrl` differs (`data.diff`) unless `--force`; the write is transactional, rolling back only what that import created on failure. `--dry-run` validates and previews without writing. |
+| `declick export <n>` / `declick import [<file>\|-] [--force] [--dry-run]` | a JSON bundle of manifest, recipes and defaults that rebuilds on another machine through lint. `import` reads `export`'s envelope as it comes, so `declick export petstore \| declick import -` round-trips. It refuses to replace an adapter of the same name whose `source`, `engine` or `baseUrl` differs (`data.diff`) unless `--force`; the write is transactional, rolling back only what that import created on failure. `--dry-run` validates and previews without writing. |
+| `declick store [set <dir\|https://...>\|push <n>\|--all\|pull [n]] [--force] [--no-git] [--dry-run]` | share adapters through a team-wide directory, git checkout or https base of export bundles; no action prints status (`new`, `update`, `in-sync`, `local-only`) per adapter |
 | `declick engines [--source x]` / `declick version` / `declick path [--install] [--dry-run]` | which engines this build has and what a source would compile to, which build, where things are; `--dry-run` on `path --install` previews without touching PATH |
 | `declick author`, `repair`, `proposals`, `accept [--dry-run]`, `recipes`, `recipe`, `desk status \| arm [min] \| disarm [--dry-run]` | the desktop authoring loop; `author` and `repair` have no `--dry-run` preview |
 | `declick commands` / `declick <cmd> --help` | the whole command surface as data, and one row (flags, examples, whether it previews) for one command. The shipped `declick` skill is rendered from the same table, so it cannot drift. |
