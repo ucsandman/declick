@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 (2026-09-06)
+
+- Two `declick store push` runs at the same instant no longer lose each other's `index.json` line: the index rewrite runs under `<store>/index.lock` (an atomic mkdir, so it holds on SMB and NFS shares too), re-reading the index inside the lock. A push waits up to 5s for the lock and then exits 1 naming it; a lock older than 30s is taken over as abandoned.
+- A directory store lists from its bundles as well as its index: a `<name>.json` the index does not mention (a push killed between its two writes, a file dropped in by hand) still shows in `declick store` and installs on pull.
+
 ## 0.7.0 (2026-09-06)
 
 - `declick store` shares adapters across a team: `set <dir|https://...>` remembers a shared folder, git checkout or read-only https base; `push <name>|--all` writes an export bundle plus an `index.json` entry; `pull [name]` installs what changed (`installed`, `updated`, `unchanged`, `conflict`, `error`), refusing a conflicting adapter unless `--force`. Store wins on pull, local wins on push, and a machine's own tuned defaults are never overwritten by a pulled bundle. A git checkout store pulls with `git pull --ff-only` and pushes with add/commit/push (`--no-git` skips both); an https store is read-only.

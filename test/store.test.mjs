@@ -112,11 +112,37 @@ test('push --all pushes every adapter; a name the store never saw is exit 2 on p
   const r = run(B, ['store', 'pull', 'nope'], { DECLICK_STORE: store }); assert.equal(r.status, 2); assert.match(J(r).error, /no bundle named nope/);
 });
 
-test('a folder with no index still lists from its bundles', () => {
+test('a folder with no index still lists from its bundles, and an index that lags a bundle is completed from disk', () => {
   const bare = mkdtempSync(join(tmpdir(), 'declick-noindex-'));
   writeFileSync(join(bare, 'petstore.json'), readFileSync(join(store, 'petstore.json')));
   const s = J(run(B, ['store'], { DECLICK_STORE: bare }));
   assert.deepEqual(s.data.map(r => [r.name, r.state]).filter(([n]) => n === 'petstore'), [['petstore', 'in-sync']]);
+  writeFileSync(join(bare, 'private.json'), readFileSync(join(store, 'private.json')));
+  writeFileSync(join(bare, 'index.json'), JSON.stringify({ adapters: idx().adapters.filter(a => a.name === 'petstore') }));
+  assert.deepEqual(J(run(B, ['store'], { DECLICK_STORE: bare })).data.map(r => r.name).filter(n => n !== 'clash'), ['petstore', 'private'], 'the bundle the index forgot is still listed');
+});
+
+test('six pushes at the same instant all land in the index, and the lock is gone afterwards', async () => {
+  const shared = mkdtempSync(join(tmpdir(), 'declick-race-'));
+  const homes = [];
+  for (let i = 0; i < 6; i++) {
+    const m = mk(`r${i}`); homes.push(m);
+    assert.equal(run(m, ['add', 'fixtures/petstore.json', '--name', `racer-${i}`, '--verbs', 'get-pet-by-id']).status, 0);
+  }
+  const results = await Promise.all(homes.map((m, i) => runAsync(m, ['store', 'push', `racer-${i}`], { DECLICK_STORE: shared })));
+  results.forEach((r, i) => assert.equal(r.status, 0, `push ${i}: ${r.stdout}${r.stderr}`));
+  const names = JSON.parse(readFileSync(join(shared, 'index.json'), 'utf8')).adapters.map(a => a.name).sort();
+  assert.deepEqual(names, [0, 1, 2, 3, 4, 5].map(i => `racer-${i}`), 'no push lost another push\'s index line');
+  assert.ok(!existsSync(join(shared, 'index.lock')), 'lock released');
+  // A lock left behind by a push that died is taken over once it is stale, and refused while it is fresh.
+  mkdirSync(join(shared, 'index.lock'));
+  assert.equal(run(homes[0], ['store', 'push', 'racer-0'], { DECLICK_STORE: shared }).status, 0, 'an unchanged push never needs the lock');
+  assert.equal(run(homes[0], ['build', 'racer-0', '--verbs', 'get-pet-by-id,add-pet']).status, 0);
+  const t0 = Date.now(); const blocked = run(homes[0], ['store', 'push', 'racer-0'], { DECLICK_STORE: shared });
+  assert.equal(blocked.status, 1); assert.match(J(blocked).error, /index\.lock is held/); assert.ok(Date.now() - t0 >= 4500, 'waited for the lock before giving up');
+  const past = new Date(Date.now() - 60000); (await import('node:fs')).utimesSync(join(shared, 'index.lock'), past, past);
+  assert.equal(J(run(homes[0], ['store', 'push', 'racer-0'], { DECLICK_STORE: shared })).data[0].state, 'pushed', 'a stale lock is taken over');
+  assert.ok(!existsSync(join(shared, 'index.lock')));
 });
 
 test('an https store is read-only: status and pull work over the index, push is refused, a missing index names itself', async () => {

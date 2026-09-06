@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, rmSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { homedir, hostname, userInfo } from 'node:os';
@@ -65,6 +65,37 @@ const atomicWrite = (p, text) => { const tmp = `${p}.${process.pid}.tmp`; writeF
 const bundlePath = (dir, name) => join(dir, `${name}.json`);
 const indexPath = dir => join(dir, 'index.json');
 
+// Two machines pushing at the same instant both read index.json, both add their own line, and the second rename
+// wins with the first entry gone. mkdir is atomic on every filesystem a shared folder lives on (local, SMB, NFS),
+// so a lock directory serialises the read-modify-write; a lock older than STALE_MS belongs to a push that died.
+const LOCK_WAIT_MS = 5000, LOCK_STALE_MS = 30000;
+function withIndexLock(dir, fn) {
+  const lock = join(dir, 'index.lock');
+  const until = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try { mkdirSync(lock); break; } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      let age = 0; try { age = Date.now() - statSync(lock).mtimeMs; } catch { /* vanished: retry */ }
+      if (age > LOCK_STALE_MS) { try { rmSync(lock, { recursive: true, force: true }); } catch { /* the other holder cleaned it */ } continue; }
+      if (Date.now() > until) throw fail(`${lock} is held by another push; wait for it or delete the directory if no push is running`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try { return fn(); } finally { try { rmSync(lock, { recursive: true, force: true }); } catch { /* already gone */ } }
+}
+
+// The bundles on disk are the truth; index.json is the listing. A directory store whose index lags (a push that
+// died between the two writes, a file dropped in by hand) still lists every bundle, with the entry rebuilt.
+function bundleEntries(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir).filter(f => f.endsWith('.json') && f !== 'index.json' && KEBAB.test(f.slice(0, -5)))
+    .map(f => { try { return indexEntry(JSON.parse(readFileSync(join(dir, f), 'utf8')), null); } catch { return null; } }).filter(b => b?.name);
+}
+const mergeIndex = (idx, dir) => {
+  const seen = new Set(idx.adapters.map(a => a.name));
+  return { adapters: [...idx.adapters, ...bundleEntries(dir).filter(e => !seen.has(e.name))].sort((a, b) => a.name.localeCompare(b.name)) };
+};
+
 async function fetchJson(url, what) {
   let r;
   try { r = await fetch(url, { signal: AbortSignal.timeout(HTTP_TIMEOUT_MS), headers: { accept: 'application/json' } }); }
@@ -83,11 +114,9 @@ export async function readIndex(store) {
     return normIndex(idx);
   }
   const p = indexPath(store.path);
-  if (existsSync(p)) { try { return normIndex(JSON.parse(readFileSync(p, 'utf8'))); } catch { /* rebuilt below */ } }
-  if (!existsSync(store.path)) return { adapters: [] };
-  const adapters = readdirSync(store.path).filter(f => f.endsWith('.json') && f !== 'index.json' && KEBAB.test(f.slice(0, -5)))
-    .map(f => { try { return indexEntry(JSON.parse(readFileSync(join(store.path, f), 'utf8')), null); } catch { return null; } }).filter(Boolean);
-  return { adapters };
+  let idx = { adapters: [] };
+  if (existsSync(p)) { try { idx = normIndex(JSON.parse(readFileSync(p, 'utf8'))); } catch { /* rebuilt from the bundles */ } }
+  return mergeIndex(idx, store.path);
 }
 const normIndex = idx => ({ adapters: Array.isArray(idx?.adapters) ? idx.adapters.filter(a => a && KEBAB.test(String(a.name))) : [] });
 
@@ -114,13 +143,18 @@ export function writeBundle(store, bundle) {
   let prev = null;
   try { prev = existsSync(bundlePath(store.path, name)) ? JSON.parse(readFileSync(bundlePath(store.path, name), 'utf8')) : null; } catch { prev = null; }
   const unchanged = !!prev && bundleHash(prev) === hash && stable(prev.defaults || null) === stable(bundle.defaults || null);
-  const idx = existsSync(indexPath(store.path)) ? (() => { try { return normIndex(JSON.parse(readFileSync(indexPath(store.path), 'utf8'))); } catch { return { adapters: [] }; } })() : { adapters: [] };
-  const old = idx.adapters.find(a => a.name === name);
+  const readIdx = () => { try { return existsSync(indexPath(store.path)) ? normIndex(JSON.parse(readFileSync(indexPath(store.path), 'utf8'))) : { adapters: [] }; } catch { return { adapters: [] }; } };
+  const old = readIdx().adapters.find(a => a.name === name);
   if (unchanged && old && old.hash === hash) return { path: bundlePath(store.path, name), hash, unchanged: true, files: [] };
   atomicWrite(bundlePath(store.path, name), JSON.stringify(bundle, null, 2) + '\n');
-  const entry = indexEntry(bundle, old && old.hash === hash ? old : null);
-  const adapters = [...idx.adapters.filter(a => a.name !== name), entry].sort((a, b) => a.name.localeCompare(b.name));
-  atomicWrite(indexPath(store.path), JSON.stringify({ adapters }, null, 2) + '\n');
+  // The index is re-read under the lock: what another push added since the check above is kept, not clobbered.
+  withIndexLock(store.path, () => {
+    const idx = mergeIndex(readIdx(), store.path);
+    const cur = idx.adapters.find(a => a.name === name);
+    const entry = indexEntry(bundle, cur && cur.hash === hash ? cur : null);
+    const adapters = [...idx.adapters.filter(a => a.name !== name), entry].sort((a, b) => a.name.localeCompare(b.name));
+    atomicWrite(indexPath(store.path), JSON.stringify({ adapters }, null, 2) + '\n');
+  });
   return { path: bundlePath(store.path, name), hash, unchanged: false, files: [`${name}.json`, 'index.json'] };
 }
 
