@@ -1,6 +1,6 @@
 # declick
 
-A compiler for the interface your agent already has: the shell. MCP makes an agent carry every tool's schema on every turn; declick compiles an API, an MCP server, or a database once into named verbs the model loads one at a time, and every verb returns one envelope with five exit codes. Ten engines, zero runtime dependencies, Node 24.
+A compiler for the interface your agent already has: the shell. MCP makes an agent carry every tool's schema on every turn; declick compiles an API, an MCP server, or a database once into named verbs the model loads one at a time, and every verb returns one envelope with five exit codes. A team pushes a compiled adapter to a shared folder or git checkout once and every other machine pulls it. Ten engines, zero runtime dependencies, Node 24.
 
 The saving is measured, not claimed: against nine real MCP servers (258 tools), the raw tool listing an MCP client puts in context is 236,818 bytes and `declick describe` is 58,309, a 4.1x reduction. `node scripts/bench-tokens.mjs` reproduces it on your own adapters; the method and the caveats are in [docs/bench.md](docs/bench.md).
 
@@ -357,7 +357,7 @@ The full recipe step vocabulary, a worked recipe, the tree-diff envelope, the ma
 declick ui --open
 ```
 
-One local page at `http://127.0.0.1:4870` (127.0.0.1 only): every adapter, its engine and verb count, the last run and result, an add form, and build, repair, remove buttons per row. Repair is enabled when the runtime has recorded an element miss for that adapter. Buttons run the same `declick` commands you would type. The server refuses requests whose Host or Origin is not its own, so a web page you happen to have open cannot drive it. It prints `{url, port, token, allowAuthoring}` on stdout.
+One local page at `http://127.0.0.1:4870` (127.0.0.1 only): every adapter, its engine and verb count, the last run and result, an add form, and build, repair, push, remove buttons per row, plus the team store's path with a Pull button when one is set. Repair is enabled when the runtime has recorded an element miss for that adapter; push is enabled when the store is a directory. Buttons run the same `declick` commands you would type. The server refuses requests whose Host or Origin is not its own, so a web page you happen to have open cannot drive it. It prints `{url, port, token, allowAuthoring}` on stdout.
 
 ## Everything is a command
 

@@ -23,7 +23,7 @@
 - declick web tree <url> [--selector css] [--grep re] | web text <url> [--grep re]   a page as a tree of elements, interactive ones first, or its visible text as numbered lines; --grep exits 2 when nothing matches
 - declick compose <n> [--steps file|-] | defaults <n> [--verb v] [--set k=v] [--unset k] [--clear] | policy [--check <n> <verb>] [--example]   chain verbs into one, flag defaults per adapter, the local policy file
 - declick audit [--adapter n] [--since t] [--failed] [--sum]   the run log: what ran, what governance decided; --sum adds it up by adapter and in total
-- declick ui [--port N] [--open] [--allow-authoring]   local page with add, build, repair, remove
+- declick ui [--port N] [--open] [--allow-authoring]   local page with add, build, repair, remove, push, and a Pull button for the team store
 - declick daemon start|stop|status   keep stdio MCP servers warm between calls, so only the first run pays a server's startup
 - declick store [set <dir|https://...> | push <n>|--all | pull [n]] [--force] [--no-git]   share adapters through a team-wide directory, git checkout or https base of export bundles
 
