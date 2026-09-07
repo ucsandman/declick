@@ -1,8 +1,8 @@
 // Zero-dep Chrome DevTools Protocol client: launch (or attach to) a browser and drive one page.
 // No puppeteer, no screenshots: every helper answers with text an agent can act on.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const err = (msg, exit = 1) => Object.assign(new Error(msg), { exit });
@@ -42,16 +42,19 @@ export async function launch({ timeout = 30000 } = {}) {
   if (!bin) throw err('no Chrome or Edge found; install Chrome or set CHROME=<path to the browser executable>');
   const base = join(home(), '.web-profile');
   let last;
-  // A profile another declick run already locked never prints the endpoint, so fall back to a private one.
-  for (const dir of [base, `${base}-${process.pid}`]) {
-    mkdirSync(dir, { recursive: true });
+  // A profile any other browser still holds never prints the endpoint, so every retry gets a profile of its own.
+  // A browser this run just killed can hold the lock for a moment longer, so the retries must not reuse one dir.
+  for (const attempt of [0, 1, 2]) {
+    const dir = attempt === 0 ? base : mkdtempSync(join(tmpdir(), 'declick-web-profile-'));
+    if (attempt === 0) mkdirSync(dir, { recursive: true });
     const proc = spawn(bin, [...FLAGS, `--user-data-dir=${dir}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
     proc.on('error', e => { last = err(`cannot start ${bin}: ${e.message}`); });
+    if (dir !== base) proc.on('exit', () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
     try {
       const url = await wsLine(proc, timeout);
       proc.stderr.resume(); // chrome blocks on a full stderr pipe once nobody reads it
       return { proc, url };
-    } catch (e) { last = e; try { proc.kill(); } catch {} }
+    } catch (e) { last = e; try { proc.kill(); } catch {} if (dir !== base) { try { rmSync(dir, { recursive: true, force: true }); } catch {} } }
   }
   throw err(`${bin} did not start: ${last.message}`);
 }

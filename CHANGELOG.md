@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2 (2026-09-07)
+
+- Two `declick web` runs on one machine no longer collide over the browser profile: a launch that finds `~/.declick/.web-profile` locked (another run, or a browser this run just killed that has not yet released the lock) retries on a private profile of its own under the temp dir, removed when that browser exits. Before, both retries used one `.web-profile-<pid>` directory, so the second launch inside a process failed with `browser exited 21`.
+
 ## 0.7.1 (2026-09-06)
 
 - Two `declick store push` runs at the same instant no longer lose each other's `index.json` line: the index rewrite runs under `<store>/index.lock` (an atomic mkdir, so it holds on SMB and NFS shares too), re-reading the index inside the lock. A push waits up to 5s for the lock and then exits 1 naming it; a lock older than 30s is taken over as abandoned.
