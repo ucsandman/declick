@@ -276,11 +276,34 @@ export async function declick(adapter, verb, args = []) {
 
 That is source, not captured output: `npm i declick` in the agent's project, then this function. Run on Node 24 against the published package, it returned the rows for `list-notes` on an mcp adapter and the exit 2 envelope for an unknown verb, with no shell involved.
 
+## Wrap a CLI somebody else generated
+
+The cli engine does not care who wrote the binary. [CLI-Anything](https://github.com/HKUDS/CLI-Anything) generates a Python CLI per application and publishes them through `cli-hub`; declick compiles any of them, and `cli-hub` itself, into an adapter with the same contract as everything else:
+
+```
+pip install cli-anything-hub
+declick add cli:cli-hub --name clihub
+declick run clihub list --rows stdout --limit 6
+```
+
+`cli-hub list` writes 9,533 bytes of registry to stdout. The same read through the adapter is 450 bytes: six rows, `meta.count` 176, and the rest one `--limit` away. Every call is one envelope, lands in `audit.jsonl`, and passes a mutating verb (`install`, `update`, `uninstall`) through the guard, none of which the generated CLI does on its own. `declick add` also writes the `SKILL.md`, so an agent finds the wrapped CLI the way it finds every other adapter.
+
+A generated harness compiles the same way once it is installed:
+
+```
+declick run clihub install -- mermaid
+declick add cli:cli-anything-mermaid --name mermaid
+declick run mermaid project -- new --sample flowchart -o demo.mmd
+```
+
+Two limits worth knowing before you rely on it. declick reads one level of `--help`, so a Click group compiles to one verb per group and the subcommand rides in as the first positional after `--`, with its own flags intact. And a harness that keeps its session in the process (open a project, then edit it) cannot be driven single shot by anyone, declick included; that is what its REPL is for. Adapters over stateless commands have neither problem.
+
 ## Compared with
 
 - **Runtime REST clients such as restish** are built for a person at a keyboard: shorthand syntax, colored output, one API configured at a time. declick is built for a program: one envelope, five exit codes, a `describe` an agent can afford to read, and the same shape for a database or a window as for an API.
 - **SDK generators such as openapi-generator and Speakeasy** produce a typed client library per language. The CLI on top, the output shaping and the exit codes are still yours to write. declick skips the library and writes the CLI.
 - **MCP** gives an agent tools over a protocol, which needs an MCP client in the loop. The mcp engine compiles a server into shell verbs, so an agent with only a shell uses it, and `--fields` and `--limit` cut the result before it reaches the context window.
+- **Generators such as CLI-Anything** have an agent write a CLI package per application, which is how you get depth into Blender or GIMP that no spec describes. declick compiles instead of generating: no model in the loop, seconds per adapter, and nothing to maintain per target. They are complements, not substitutes, and the section above wraps one in the other.
 - **Screenshot and DOM agents** find the button again every session and pay tokens each time. The web and desktop engines record the path once and replay it, and a miss returns the elements that are there, not a screenshot.
 
 The part none of those share is that all ten engines, and declick itself, honor the same contract, so an agent learns the output shape once.

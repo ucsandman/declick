@@ -62,6 +62,22 @@ Every text field that can come from an untrusted spec or an imported bundle (`so
 
 `declick manifest --schema` prints the same field reference as data.
 
+## Nested CLI subcommands
+
+The cli engine compiles from one `--help` screen, then reads each listed command's own help for its args and flags. A tool whose commands are themselves groups (Click, cobra, commander) therefore compiles to one verb per top-level group, not per leaf.
+
+The leaf still runs. Positionals are appended to the command line after the fixed argv, so the subcommand and its flags go in after `--`:
+
+```
+declick add cli:cli-anything-mermaid --name mermaid
+declick describe mermaid            # verbs: diagram, export, project, repl, session
+declick run mermaid diagram -- set --text "graph TD; A-->B"
+```
+
+What you lose by passing through is validation: declick cannot reject an unknown flag for a leaf it never read, so the child's own error comes back in the envelope (`ok:false`, one line in `error`, the full stderr under `data.stderr`, `--fields code` if you only want the status). What you keep is everything else in the contract: the cap, `--rows`, `--where`, the cache, the audit line, and the guard on a mutating verb.
+
+`--verbs a,b` narrows which top-level commands compile at all, which is worth doing on a tool with dozens of groups.
+
 ## Per-adapter flag defaults
 
 `~/.declick/<name>/defaults.json` is optional and hand-editable: an object of scopes, each an object of flag names to values.
