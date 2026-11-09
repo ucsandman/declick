@@ -150,7 +150,9 @@ export async function author({ name, window, goal, verb, seed }) {
   if (errs.length) throw Object.assign(new Error(`author recipe invalid: ${errs.join('; ')}`), { exit: EXIT.ERROR });
   // A recipe that claims to change nothing but clicks something is mutating anyway.
   const mutating = r.mutating !== false || stepsMutate('desktop', r.steps);
-  const m = { name, engine: 'desktop', source: `app:${window}`, window, builtAt: new Date().toISOString(), auth: { env: [] },
+  // draft: the replays below try a recipe nobody saved yet, so they write no health record for the verb of
+  // that name; the one event authoring records is the save, in bin/declick.mjs. This literal is never saved.
+  const m = { name, engine: 'desktop', source: `app:${window}`, window, builtAt: new Date().toISOString(), auth: { env: [] }, draft: true,
     verbs: [{ name: r.verb, description: r.description, args: r.args, flags: [], mutating, recipe: { steps: r.steps, returns: r.returns, tree: null } }] };
   const dry = await execute(m, r.verb, r.example, { dryRun: true });
   if (!dry.ok) { const p = keepProposal(name, r.verb, r); throw Object.assign(new Error(`dry-run failed: ${dry.error}; proposal kept at ${p}`), { exit: dry.exit === EXIT.BLOCKED ? EXIT.BLOCKED : EXIT.NOT_FOUND }); }
@@ -168,5 +170,6 @@ export async function author({ name, window, goal, verb, seed }) {
   }
   const recipe = { description: clamp(r.description, 80), args: r.args, mutating, steps: r.steps, returns: r.returns, tree: snapshotTree(window), example: r.example, expect: r.expect };
   const path = saveRecipe(name, r.verb, recipe);
-  return { recipe, path, result: res.data };
+  // parseRecipe takes the verb from the model's json, so the caller learns which verb was actually saved.
+  return { recipe, path, result: res.data, verb: r.verb };
 }

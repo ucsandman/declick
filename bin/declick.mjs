@@ -14,6 +14,7 @@ import { importRecipes, loadRecipe, listRecipes, removeRecipe, recipesDir, valid
 import { author } from '../src/author.mjs';
 import { startUi, adapterRows } from '../src/ui.mjs';
 import { DESK } from '../src/engines/desktop.mjs';
+import { readHealth, verbState, assertApply, recordEvent } from '../src/health.mjs';
 import { loadEnv, vaultPath, mintHint } from '../src/creds.mjs';
 import { guardUrl, isStrict, derivedMutating } from '../src/guard.mjs';
 import { loadPolicy, policyDecision, policyPath, EXAMPLE_POLICY } from '../src/policy.mjs';
@@ -213,7 +214,9 @@ async function authorVerb(name, window, flags, seed) {
   const goal = flags.goal || seed.recipe.description;
   const out = await author({ name, window, goal, verb, seed });
   process.stderr.write(`saved ${out.path} (replay returned ${JSON.stringify(out.result)})\n`);
-  rmSync(join(manifestDir(name), 'last-error.json'), { force: true });
+  // Only the verb that was saved is healthy now. A repair whose model saved under another name clears nothing:
+  // that name has no recorded miss, the table has no repair edge out of ok, and the broken verb stays broken.
+  recordEvent(name, out.verb, seed ? 'repair' : 'author');
   return build(`app:${window}`, { ...flags, name });
 }
 
@@ -567,8 +570,13 @@ try {
     }
     case 'repair': {
       const old = loadManifest(arg);
+      if (old.engine !== 'desktop') fail(`${arg} is a ${old.engine} adapter; repair works on desktop adapters`);
       const recipe = loadRecipe(arg, arg2);
-      const le = readJson(join(manifestDir(arg), 'last-error.json')) || { error: 'no recorded failure', diff: { missing: [], added: [] } };
+      // Repair re-authors element paths from the recorded miss; with no miss there is nothing to seed it from.
+      // Exit 1, not 2: the skill sends an agent to repair on exit 2, so a refusal with 2 would loop it.
+      const h = readHealth(arg);
+      assertApply(verbState(h, arg2), 'repair', { adapter: arg, verb: arg2 });
+      const le = h.failures[arg2];
       const m = await authorVerb(arg, old.window, { ...flags, name: arg, verb: arg2 }, { verb: arg2, recipe, diff: le.diff, error: le.error });
       result = { ok: true, data: describeJson(m) }; text = describe(m); break;
     }

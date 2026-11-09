@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A recorded failure is now per verb and only a real success of that verb clears it: a `--dry-run`, a `--cache` hit, `<adapter> <verb> --help`, another verb's success and an authoring replay of an unsaved draft no longer delete `~/.declick/<name>/last-error.json`, and a later failure of one verb no longer overwrites another verb's element-miss diff. `src/health.mjs` holds the states (ok, failing, broken) and the one table every writer goes through; `declick status`, `declick list` and `GET /api/adapters` rows gain `health` with `state`, `failing[]` (each with `allowedNext`) and `nextActions`, and `last-run.json` gains `cache: true` on a hit.
+- `declick repair` refuses what it cannot fix, with exit 1 and `data: {error: "illegal_transition", current, requested, allowed}`: a verb with no recorded element miss (before, it started an authoring session seeded with "no recorded failure"), and a non-desktop adapter (before, exit 2 "no recipe"). The ui enables Repair only for a broken desktop verb, says why it is off otherwise (`<verb> failed with exit N, not an element miss`), shows one line per failing verb, and labels a dry run `preview ok` and a cache hit `cached ok`. The generated desktop skill sends agents to repair only on exit 2 with `data.missing`, and to start the app when the window is not open.
+
 ## 0.7.2 (2026-09-07)
 
 - Two `declick web` runs on one machine no longer collide over the browser profile: a launch that finds `~/.declick/.web-profile` locked (another run, or a browser this run just killed that has not yet released the lock) retries on a private profile of its own under the temp dir, removed when that browser exits. Before, both retries used one `.web-profile-<pid>` directory, so the second launch inside a process failed with `browser exited 21`.

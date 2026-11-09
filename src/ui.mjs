@@ -1,18 +1,19 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HOME, manifestDir, loadManifest, listManifests, KEBAB } from './manifest.mjs';
+import { HOME, loadManifest, listManifests, KEBAB } from './manifest.mjs';
 import { guard } from './guard.mjs';
 import { storeLocation } from './store.mjs';
+import { readHealth, healthOf, canApply, nextEvents, lastRunLabel, HEALTH_STATE_LABELS } from './health.mjs';
 
 // The page never throws on a bad store file: the CLI names the fix, the page just says there is none to pull from.
 const storeState = () => { try { return storeLocation(); } catch { return null; } };
 
 const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'declick.mjs');
-const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
+// The same words on the disabled button and on the route that refuses it.
+const notMiss = f => `${f.verb} failed${f.exit !== undefined ? ` with exit ${f.exit}` : ''}, not an element miss`;
 // Same words the CLI uses for the same refusal: the local policy file and DashClaw are not the same governor.
 const refused = g => `blocked by ${g.source === 'policy' ? 'policy' : 'governance'}: ${g.reason}`;
 const HOST_RE = /^(127\.0\.0\.1|localhost|\[::1\]):\d+$/;
@@ -21,9 +22,11 @@ export function adapterRows() {
   return listManifests().map(name => {
     try {
       const m = loadManifest(name);
-      return { name, engine: m.engine, source: m.source, verbs: m.verbs.length,
-        lastRun: readJson(join(manifestDir(name), 'last-run.json')),
-        lastError: readJson(join(manifestDir(name), 'last-error.json')) };
+      const h = readHealth(name), health = healthOf(name, m, h);
+      // lastError keeps the shape every older reader knows: the newest failure among this manifest's own verbs.
+      const newest = health.failing[0];
+      return { name, engine: m.engine, source: m.source, verbs: m.verbs.length, lastRun: h.lastRun,
+        lastError: newest ? (h.last?.verb === newest.verb ? h.last : { verb: newest.verb, ...h.failures[newest.verb] }) : null, health };
     } catch (e) { return { name, error: e.message, engine: null, verbs: 0, lastRun: null, lastError: null }; }
   });
 }
@@ -40,9 +43,12 @@ function rowHtml(r, authoring, store) {
 <td><button data-action="build" disabled>build</button> <button data-action="repair" disabled>repair</button> <button data-action="push" disabled>push</button> <button data-action="remove" class="danger">remove</button></td></tr>`;
   // push lands this adapter in the team store; without a writable store the button says why it is off.
   const push = !store ? ' disabled title="no store set: declick store set <dir>"' : store.kind === 'http' ? ' disabled title="an https store is read-only"' : '';
-  const run = r.lastRun ? `${esc(r.lastRun.verb)} ${r.lastRun.ok ? 'ok' : 'exit ' + r.lastRun.exit} <span class="dim">${esc(r.lastRun.at.slice(0, 16).replace('T', ' '))}</span>` : '<span class="dim">never run</span>';
-  const err = r.lastError ? `<div class="err">${esc(r.lastError.verb)}: ${esc(r.lastError.error)}</div>` : '';
-  const repair = !authoring ? ' disabled title="start with: declick ui --allow-authoring"' : r.lastError ? '' : ' disabled title="no recorded failure"';
+  const run = r.lastRun ? `${esc(r.lastRun.verb)} ${esc(lastRunLabel(r.lastRun))} <span class="dim">${esc(r.lastRun.at.slice(0, 16).replace('T', ' '))}</span>` : `<span class="dim">${lastRunLabel(null)}</span>`;
+  const failing = r.health?.failing || [];
+  const err = failing.map(f => `<div class="err">${esc(HEALTH_STATE_LABELS[f.state])}: ${esc(f.verb)}: ${esc(f.error)}</div>`).join('');
+  // Repair is offered exactly where the health table allows it: a verb whose element path stopped resolving.
+  const repair = !authoring ? ' disabled title="start with: declick ui --allow-authoring"'
+    : failing.some(f => canApply(f.state, 'repair')) ? '' : !failing.length ? ' disabled title="no recorded failure"' : ` disabled title="${esc(notMiss(failing[0]))}"`;
   // Only a desktop adapter has a window to walk; the tree lands in the pre below instead of reloading the page.
   const tree = r.engine === 'desktop' ? '' : ' disabled title="desktop adapters only"';
   return `<tr data-name="${esc(r.name)}"><td><b>${esc(r.name)}</b><div class="dim">${esc(r.source)}</div>${err}</td><td>${esc(r.engine)}</td><td>${r.verbs}</td><td>${run}</td>
@@ -156,9 +162,15 @@ export function startUi({ port = 4870, host = '127.0.0.1', allowAuthoring = fals
         const g = await guard({ tool: 'declick-ui', action, engine: 'declick', target: name, args: { adapter: name } });
         if (!g.allowed) return send(403, JSON.stringify({ ok: false, error: refused(g), decision: g.decision }));
         if (action === 'repair') {
-          const le = readJson(join(manifestDir(name), 'last-error.json'));
-          if (!le?.verb) return send(400, JSON.stringify({ ok: false, error: 'no recorded failure to repair' }));
-          return send(200, JSON.stringify(runCli(['repair', name, le.verb])));
+          let adapter; try { adapter = loadManifest(name); } catch (e) { return send(400, JSON.stringify({ ok: false, error: e.message })); }
+          const { failing } = healthOf(name, adapter);
+          // The CLI refusal's contract fields; the status stays 400, which the page and its tests already read.
+          const refuse = (error, current) => send(400, JSON.stringify({ ok: false, error, code: 'illegal_transition', current, requested: 'repair', allowed: nextEvents(current) }));
+          const broken = failing.find(f => canApply(f.state, 'repair'));
+          if (!failing.length) return refuse('no recorded failure to repair', 'ok');
+          if (!broken) return refuse(`${notMiss(failing[0])}; repair re-authors element paths`, failing[0].state);
+          if (adapter.engine !== 'desktop') return send(400, JSON.stringify({ ok: false, error: `${name} is a ${adapter.engine} adapter; repair works on desktop adapters` }));
+          return send(200, JSON.stringify(runCli(['repair', name, broken.verb])));
         }
         if (action === 'push') return send(200, JSON.stringify(runCli(['store', 'push', name])));
         return send(200, JSON.stringify(runCli([action, name])));

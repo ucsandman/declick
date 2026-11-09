@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { parseSnapshot, findByPath, findAll, subtreeOf, candidates, treeDiff } from './desktop-tree.mjs';
 import { recipesDir, listRecipes, validateStoredRecipe, STEP_KEYS } from '../recipes.mjs';
-import { manifestDir } from '../manifest.mjs';
 import { EXIT } from '../output.mjs';
+import { recordMiss, recordEvent } from '../health.mjs';
 import { stepsMutate } from '../guard.mjs';
 
 export const DESK = () => process.env.DECLICK_DESK || join(homedir(), '.claude', 'tools', 'deskclaw', 'desk');
@@ -123,8 +123,7 @@ export async function execute(m, verbName, positional, flags = {}) {
     const diff = v.recipe.tree ? treeDiff(v.recipe.tree.map(k => { const i = k.indexOf(':'); return { type: k.slice(0, i), name: k.slice(i + 1) }; }), live) : { missing: [], added: [] };
     const data = { ...diff, ...candidates(live, path), unresolved: path };
     const error = `element not found: ${path.join(' > ')} in "${title}" (${what}); pick one of data.candidates or run: declick repair ${m.name} ${verbName}`;
-    try { mkdirSync(manifestDir(m.name), { recursive: true }); writeFileSync(join(manifestDir(m.name), 'last-error.json'), JSON.stringify({ verb: verbName, error, diff, at: new Date().toISOString() }, null, 2) + '\n'); } catch {}
-    return { data, error };
+    return { data, error, diff };
   }
 
   // The tree an agent found and the tree it acts on are two different reads. Every acting step resolves its
@@ -189,9 +188,12 @@ export async function execute(m, verbName, positional, flags = {}) {
           trace.push({ found: path, ref: hit.ref }); break;
         }
         if (Date.now() < until) { await sleep(250); continue; }
-        const { data, error } = miss(t.live, path, k);
+        const { data, error, diff } = miss(t.live, path, k);
         // null, not absent: a later step that names it is a skipped optional, not a recipe bug.
         if (step.optional) { if (k === 'find') els[step.as] = null; skip(error); break; }
+        // The miss that ends the run is the one repair needs. author's replays carry draft: an unsaved recipe
+        // has no record to write into, and the saved verb of the same name keeps its own.
+        if (!m.draft) recordMiss(m.name, verbName, { error, diff });
         return bad(EXIT.NOT_FOUND, error, data);
       }
       continue;
@@ -298,6 +300,7 @@ export async function execute(m, verbName, positional, flags = {}) {
     trace.push({ did: k, ref: got.el.ref });
   }
   if (dry) return { ok: true, data: { steps: trace } };
-  try { rmSync(join(manifestDir(m.name), 'last-error.json'), { force: true }); } catch {}
+  // A real replay that finished clears this verb's failure and nobody else's.
+  if (!m.draft) recordEvent(m.name, verbName, 'run');
   return { ok: true, data: v.recipe.returns ? out[v.recipe.returns] : { done: true }, meta: { steps: trace } };
 }

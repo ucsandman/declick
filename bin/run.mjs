@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { HOME, loadManifest, manifestDir } from '../src/manifest.mjs';
+import { HOME, loadManifest } from '../src/manifest.mjs';
 import { describe, describeJson } from '../src/describe.mjs';
 import { emit, shape, capData, jsonBytes, parseFlags, camel, nearest, CAP_HINT, RESERVED, EXIT } from '../src/output.mjs';
 import { guard, derivedMutating, redactArgs } from '../src/guard.mjs';
@@ -9,6 +9,7 @@ import { policyDecision } from '../src/policy.mjs';
 import { scopeCreds, credUsage } from '../src/creds.mjs';
 import { defaultsPath, loadDefaults, knownFlags, parseEntry } from '../src/defaults.mjs';
 import { cacheKey, cacheRead, cacheWrite } from '../src/cache.mjs';
+import { recordRun } from '../src/health.mjs';
 
 // Same gate as bin/declick.mjs: the launcher execs this file directly, and src/engines/index.mjs pulls in
 // node:sqlite at import time, so the Node check has to run before the engines load or Node 18 users get a stack trace.
@@ -54,7 +55,6 @@ const didYouMean = (word, known, dash = '') => { const near = nearest(word, know
 const upperSnake = s => String(s).replace(/[^a-zA-Z0-9]+/g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase();
 const originOf = u => { try { return new URL(String(u)).origin; } catch { return null; } };
 const allowList = () => (process.env.DECLICK_ENV_ALLOW || '').split(/[,\s]+/).filter(Boolean);
-const readJson = p => { try { return existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null; } catch { return null; } };
 // Engines that send a request built from baseUrl: their keys belong to that origin and nowhere else.
 const SCOPED = ['openapi', 'graphql', 'postman', 'har'];
 // --cache <seconds> asks for the answer the wire already gave; --cache 0 and DECLICK_CACHE=off both mean go and ask.
@@ -293,19 +293,13 @@ const out = emit(result, each ? { json, limit: Math.max(each.count, 1), maxBytes
 // The envelope is ok because the batch ran; the exit code is the first item that was not.
 if (each) out.exit = each.exit;
 if (text && !json) out.text = text;
-if (m && verb && verb !== 'describe') {
+// <verb> --help took the describe path above: it is not a run of the verb, so it leaves no breadcrumb.
+if (m && verb && verb !== 'describe' && !(v && flags.help)) {
   try {
-    const dir = manifestDir(name); mkdirSync(dir, { recursive: true });
-    const at = new Date().toISOString(); const ok = out.exit === 0;
-    writeFileSync(join(dir, 'last-run.json'), JSON.stringify({ verb, ok, exit: out.exit, dryRun: !!flags.dryRun, at, ...(ok ? {} : { error: errorNote ?? result.error }) }, null, 2) + '\n');
-    // Every engine leaves the same breadcrumb for declick status, the ui and repair. The desktop engine
-    // writes its tree diff during execute, so that field survives a rewrite of the same verb's failure.
-    const p = join(dir, 'last-error.json');
-    if (ok) rmSync(p, { force: true });
-    else {
-      const prev = readJson(p);
-      writeFileSync(p, JSON.stringify({ verb, error: errorNote ?? result.error, exit: out.exit, ...(result.data !== undefined && !each ? { data: result.data } : {}), ...(prev?.verb === verb && prev.diff ? { diff: prev.diff } : {}), at }, null, 2) + '\n');
-    }
+    // Every engine leaves the same breadcrumb for declick status, the ui and repair. src/health.mjs owns both
+    // files and decides what this outcome may change: a dry run or a cache hit never clears a recorded failure,
+    // another verb's run never touches this one's, and an unknown verb only moves the newest-call breadcrumb.
+    recordRun(name, { verb, known: !!v, ok: out.exit === 0, exit: out.exit, dryRun: !!flags.dryRun, cache: !!cache?.hit, error: errorNote ?? result.error, data: each ? undefined : result.data });
   } catch {}
 }
 // What this run cost the caller's context, measured on the envelope that is about to go out; declick audit --sum
