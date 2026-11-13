@@ -24,9 +24,12 @@ export function cacheRead(name, key, ttl) {
   if (!existsSync(p)) return null;
   let entry;
   try { entry = JSON.parse(readFileSync(p, 'utf8')); } catch { return null; }
-  const age = Math.floor((Date.now() - Date.parse(entry?.at)) / 1000);
-  if (!Number.isFinite(age) || age > ttl) return null;
-  return { result: entry.result, age: Math.max(age, 0) };
+  const ageMs = Date.now() - Date.parse(entry?.at);
+  // Check freshness before rounding: clock rollback must not make stale data fresh,
+  // and the TTL is an expiry boundary rather than an extra partial second.
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs >= ttl * 1000) return null;
+  if (!entry.result || typeof entry.result !== 'object' || Array.isArray(entry.result) || entry.result.ok !== true) return null;
+  return { result: entry.result, age: Math.floor(ageMs / 1000) };
 }
 
 export function cacheWrite(name, key, entry) {
