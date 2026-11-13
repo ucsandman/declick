@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 (2026-11-13)
+
+- Cached responses with future timestamps (including after clock rollback), expired timestamps, missing results, or failed results are treated as misses and refetched. TTL expiry is checked before rounding the displayed age.
+- Nine deterministic cache regressions cover expiry boundaries, clock rollback, and malformed cached results.
+
 ## 0.8.0 (2026-11-09)
 
 - A recorded failure is now per verb and only a real success of that verb clears it: a `--dry-run`, a `--cache` hit, `<adapter> <verb> --help`, another verb's success and an authoring replay of an unsaved draft no longer delete `~/.declick/<name>/last-error.json`, and a later failure of one verb no longer overwrites another verb's element-miss diff. `src/health.mjs` holds the states (ok, failing, broken) and the one table every writer goes through; `declick status`, `declick list` and `GET /api/adapters` rows gain `health` with `state`, `failing[]` (each with `allowedNext`) and `nextActions`, and `last-run.json` gains `cache: true` on a hit.
